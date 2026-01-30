@@ -86,7 +86,7 @@ pub mod KatanaTee {
         ) -> Result<bool, felt252> {
             match self.verify_sp1_proof(sp1_proof) {
                 Result::Ok(journal) => {
-                    println!("[KatanaTee] SP1 proof ok");
+                    // println!("[KatanaTee] SP1 proof ok");
                     let raw_report = RawAttestationReport { raw: journal.raw_report };
 
                     let measurement = raw_report.measurement();
