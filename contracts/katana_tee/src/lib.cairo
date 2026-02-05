@@ -13,6 +13,7 @@ pub trait IKatanaTee<TContractState> {
     ) -> Result<VerifierJournal, felt252>;
 
     /// Verify proof and update the latest verified sequencer state.
+    /// Also registers the storage commitment from the SP1 journal.
     fn verify_and_update_state(
         ref self: TContractState,
         sp1_proof: Array<felt252>,
@@ -91,7 +92,6 @@ pub mod KatanaTee {
         ) -> Result<bool, felt252> {
             match self.verify_sp1_proof(sp1_proof) {
                 Result::Ok(journal) => {
-                    // println!("[KatanaTee] SP1 proof ok");
                     let raw_report = RawAttestationReport { raw: journal.raw_report };
 
                     let measurement = raw_report.measurement();
@@ -105,7 +105,6 @@ pub mod KatanaTee {
                     self.latest_block_hash.write(block_hash);
                     self.latest_block_number.write(block_number);
 
-                    // If the journal includes a storage commitment, register it
                     IStorageCommitmentDispatcher {
                         contract_address: self.storage_commitment_registry.read(),
                     }
