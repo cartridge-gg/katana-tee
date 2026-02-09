@@ -40,6 +40,20 @@ fn load_root_certs() -> RootCerts {
     FileParser::<RootCerts>::parse_json(@file).expect('Failed to parse root_certs.json')
 }
 
+/// Measurement config loaded from tests/fixtures/measurement.json
+/// Fields must be in alphabetical order (FileParser sorts JSON keys alphabetically)
+#[derive(Drop, Serde)]
+struct MeasurementConfig {
+    high_bits: felt252,
+    low_bits: felt252,
+    mid_bits: felt252,
+}
+
+fn load_measurement() -> MeasurementConfig {
+    let file = FileTrait::new("../../tests/fixtures/measurement.json");
+    FileParser::<MeasurementConfig>::parse_json(@file).expect('Failed: measurement.json')
+}
+
 /// Deploy the AMDTEERegistry contract in LIVE MODE (no pre-cached intermediates)
 fn deploy_amd_registry_live_mode() -> ContractAddress {
     let contract = declare("AMDTEERegistry").unwrap().contract_class();
@@ -64,9 +78,14 @@ fn deploy_amd_registry_live_mode() -> ContractAddress {
 /// Deploy the KatanaTee contract for testing
 fn deploy_katana_tee(registry_address: ContractAddress) -> ContractAddress {
     let contract = declare("KatanaTee").unwrap().contract_class();
+    let m = load_measurement();
 
+    // Constructor calldata: registry_address, measurement (Bytes48 Serde order: low, mid, high)
     let mut calldata: Array<felt252> = array![];
     calldata.append(registry_address.into());
+    calldata.append(m.low_bits);
+    calldata.append(m.mid_bits);
+    calldata.append(m.high_bits);
 
     let (contract_address, _) = contract.deploy(@calldata).unwrap();
     contract_address
