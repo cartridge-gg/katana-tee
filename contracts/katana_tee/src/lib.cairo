@@ -14,13 +14,16 @@ pub trait IKatanaTee<TContractState> {
 
     /// Verify proof and update the latest verified sequencer state.
     /// Also registers the storage commitment from the SP1 journal.
+    /// Returns (success, end_block_number) where end_block_number comes from SP1 journal.
     fn verify_and_update_state(
         ref self: TContractState,
         sp1_proof: Array<felt252>,
         state_root: felt252,
         block_hash: felt252,
         block_number: u64,
-    ) -> Result<bool, felt252>;
+        fork_block_number: u64,
+        events_commitment: felt252,
+    ) -> Result<(bool, u64), felt252>;
 
     /// Get the AMD TEE Registry contract address.
     fn get_registry_address(self: @TContractState) -> ContractAddress;
@@ -89,8 +92,13 @@ pub mod KatanaTee {
             state_root: felt252,
             block_hash: felt252,
             block_number: u64,
-        ) -> Result<bool, felt252> {
-            match self.verify_sp1_proof(sp1_proof) {
+            fork_block_number: u64,
+            events_commitment: felt252,
+        ) -> Result<(bool, u64), felt252> {
+            let registry = IAMDTeeRegistryDispatcher {
+                contract_address: self.registry_address.read(),
+            };
+            match registry.verify_sp1_proof(sp1_proof) {
                 Result::Ok(journal) => {
                     let raw_report = RawAttestationReport { raw: journal.raw_report };
 
@@ -99,7 +107,10 @@ pub mod KatanaTee {
                     assert(measurement == self.get_measurement(), 'Measurement mismatch');
 
                     let report_data = raw_report.report_data();
-                    verify_katana_report_data(report_data, state_root, block_hash);
+                    verify_katana_report_data(
+                        report_data, state_root, block_hash, fork_block_number,
+                        events_commitment,
+                    );
 
                     self.latest_state_root.write(state_root);
                     self.latest_block_hash.write(block_hash);
@@ -110,7 +121,7 @@ pub mod KatanaTee {
                     }
                         .register_verified_commitment(journal.storage_commitment);
 
-                    Result::Ok(true)
+                    Result::Ok((true, journal.end_block_number))
                 },
                 Result::Err(error) => Result::Err(error),
             }
