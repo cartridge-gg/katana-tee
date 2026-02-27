@@ -108,8 +108,7 @@ pub mod KatanaTee {
 
                     let report_data = raw_report.report_data();
                     verify_katana_report_data(
-                        report_data, state_root, block_hash, fork_block_number,
-                        events_commitment,
+                        report_data, state_root, block_hash, fork_block_number, events_commitment,
                     );
 
                     self.latest_state_root.write(state_root);
