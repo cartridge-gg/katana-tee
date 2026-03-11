@@ -22,7 +22,7 @@ use katana_tee_client::{KatanaRpcClient, generate_sp1_proof};
 async fn main() -> anyhow::Result<()> {
     // Fetch attestation from Katana RPC
     let client = KatanaRpcClient::new("http://localhost:5050");
-    let attestation = client.generate_quote().await?;
+    let attestation = client.generate_quote(0, 0).await?;
 
     println!("Block: {}", attestation.block_number);
     println!("State Root: {}", attestation.state_root);

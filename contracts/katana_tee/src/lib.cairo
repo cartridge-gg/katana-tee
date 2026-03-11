@@ -1,4 +1,5 @@
 pub mod katana_report_utils;
+use amd_tee_registry::byte_utils::Bytes48;
 use amd_tee_registry::tee_types::VerifierJournal;
 use starknet::ContractAddress;
 
@@ -29,12 +30,15 @@ pub trait IKatanaTee<TContractState> {
 
     /// Get the latest verified sequencer state.
     fn get_latest_state(self: @TContractState) -> (u64, felt252, felt252);
+
+    /// Get the measurement.
+    fn get_measurement(self: @TContractState) -> Bytes48;
 }
 
 /// Katana TEE contract that delegates SP1 proof verification to the AMD TEE Registry.
 #[starknet::contract]
 pub mod KatanaTee {
-    use amd_tee_registry::journal_decode::decode_verifier_journal;
+    use amd_tee_registry::byte_utils::Bytes48;
     use amd_tee_registry::tee_registry::{IAMDTeeRegistryDispatcher, IAMDTeeRegistryDispatcherTrait};
     use amd_tee_registry::tee_types::{
         RawAttestationReport, RawAttestationReportTrait, VerifierJournal,
@@ -56,6 +60,8 @@ pub mod KatanaTee {
         latest_block_number: u64,
         /// Storage commitment registry contract address
         storage_commitment_registry: ContractAddress,
+        /// Expected TEE measurement
+        measurement: Bytes48,
     }
 
 
@@ -64,9 +70,11 @@ pub mod KatanaTee {
         ref self: ContractState,
         registry_address: ContractAddress,
         storage_commitment_registry: ContractAddress,
+        measurement: Bytes48,
     ) {
         self.registry_address.write(registry_address);
         self.storage_commitment_registry.write(storage_commitment_registry);
+        self.measurement.write(measurement);
     }
 
     #[abi(embed_v0)]
@@ -97,6 +105,11 @@ pub mod KatanaTee {
             match registry.verify_sp1_proof(sp1_proof) {
                 Result::Ok(journal) => {
                     let raw_report = RawAttestationReport { raw: journal.raw_report };
+
+                    let measurement = raw_report.measurement();
+                    println!("[KatanaTee] Measurement: {:?}", measurement);
+                    assert(measurement == self.get_measurement(), 'Measurement mismatch');
+
                     let report_data = raw_report.report_data();
                     verify_katana_report_data(
                         report_data, state_root, block_hash, fork_block_number, events_commitment,
@@ -129,6 +142,11 @@ pub mod KatanaTee {
                 self.latest_state_root.read(),
                 self.latest_block_hash.read(),
             )
+        }
+
+        /// Get the measurement.
+        fn get_measurement(self: @ContractState) -> Bytes48 {
+            self.measurement.read()
         }
     }
 }

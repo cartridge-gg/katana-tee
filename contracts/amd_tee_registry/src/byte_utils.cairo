@@ -17,7 +17,7 @@ pub struct Bytes24 {
 
 /// Fixed-size byte array for 48 bytes (12 u32 words)
 /// Layout: [low_bits: 0-15] [mid_bits: 16-31] [high_bits: 32-47]
-#[derive(Drop, Copy, Default, PartialEq, Debug)]
+#[derive(Drop, Copy, Default, PartialEq, Debug, Serde, starknet::Store)]
 pub struct Bytes48 {
     /// Low 128 bits (bytes 0-15, u32 words 0-3)
     pub low_bits: u128,

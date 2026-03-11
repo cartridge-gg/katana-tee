@@ -11,16 +11,29 @@ const SALT: felt252 = 0x1;
 const GARAGA_CLASS_HASH: felt252 =
     0x4b22453df42037dd61390736454e8390910adfbbc1fa9d85613e6f375f4de22;
 
-// SP1 program ID
-const SP1_PROGRAM_ID_LOW: felt252 = 0x8323ce49dba9b22fc128157fb9cb4ff0;
-const SP1_PROGRAM_ID_HIGH: felt252 = 0x008d500940a54e9411d515f14090769b;
-
 #[derive(Drop, Serde)]
 struct RootCerts {
     genoa_ark_hash_high: felt252,
     genoa_ark_hash_low: felt252,
     milan_ark_hash_high: felt252,
     milan_ark_hash_low: felt252,
+}
+
+/// SP1 program ID config loaded from tests/fixtures/sp1_program_id.json
+/// Fields must be in alphabetical order (FileParser sorts JSON keys alphabetically)
+#[derive(Drop, Serde)]
+struct Sp1ProgramIdConfig {
+    high_bits: felt252,
+    low_bits: felt252,
+}
+
+/// Measurement config loaded from tests/fixtures/measurement.json
+/// Fields must be in alphabetical order (FileParser sorts JSON keys alphabetically)
+#[derive(Drop, Serde)]
+struct MeasurementConfig {
+    high_bits: felt252,
+    low_bits: felt252,
+    mid_bits: felt252,
 }
 
 #[executable]
@@ -43,10 +56,15 @@ fn main() {
     println!("  Milan: 0x{:x}", milan_root);
     println!("  Genoa: 0x{:x}", genoa_root);
 
+    // Load SP1 program ID from fixture
+    let sp1_file = FileTrait::new("../../tests/fixtures/sp1_program_id.json");
+    let sp1_id: Sp1ProgramIdConfig = FileParser::<Sp1ProgramIdConfig>::parse_json(@sp1_file)
+        .expect('Failed: sp1_program_id');
+
     // Build calldata - LIVE MODE (empty trusted_certs)
     let verifier_class_hash: ClassHash = GARAGA_CLASS_HASH.try_into().unwrap();
     let sp1_program_id: u256 = u256 {
-        low: SP1_PROGRAM_ID_LOW.try_into().unwrap(), high: SP1_PROGRAM_ID_HIGH.try_into().unwrap(),
+        low: sp1_id.low_bits.try_into().unwrap(), high: sp1_id.high_bits.try_into().unwrap(),
     };
     let max_time_diff: u64 = 86400; // 24h (match deploy_sncast.sh)
     let trusted_certs: Array<u256> = array![]; // Live mode - empty
@@ -66,9 +84,20 @@ fn main() {
 
     let amd_tee_registry_address = declare_and_deploy_contract("AMDTEERegistry", amd_tee_calldata);
 
-    // Deploy KatanaTee
+    // Load measurement from fixture
+    let mfile = FileTrait::new("../../tests/fixtures/measurement.json");
+    let measurement: MeasurementConfig = FileParser::<MeasurementConfig>::parse_json(@mfile)
+        .expect('Failed to load measurement.json');
+
+    // Deploy KatanaTee with:
+    // registry_address, storage_commitment_registry, measurement (Bytes48: low, mid, high)
+    let storage_commitment_registry: ContractAddress = 0.try_into().unwrap();
     let mut katana_tee_calldata: Array<felt252> = array![];
     Serde::serialize(@amd_tee_registry_address, ref katana_tee_calldata);
+    Serde::serialize(@storage_commitment_registry, ref katana_tee_calldata);
+    katana_tee_calldata.append(measurement.low_bits);
+    katana_tee_calldata.append(measurement.mid_bits);
+    katana_tee_calldata.append(measurement.high_bits);
     let _katana_tee_address = declare_and_deploy_contract("KatanaTee", katana_tee_calldata);
 }
 

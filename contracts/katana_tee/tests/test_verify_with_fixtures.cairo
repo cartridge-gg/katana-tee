@@ -21,10 +21,6 @@ use storage_commitment::{IStorageCommitmentDispatcher, IStorageCommitmentDispatc
 const GARAGA_CLASS_HASH: felt252 =
     0x4b22453df42037dd61390736454e8390910adfbbc1fa9d85613e6f375f4de22;
 
-/// SP1 program ID for the AMD attestation verifier
-const SP1_PROGRAM_ID_LOW: felt252 = 0x8323ce49dba9b22fc128157fb9cb4ff0;
-const SP1_PROGRAM_ID_HIGH: felt252 = 0x008d500940a54e9411d515f14090769b;
-
 /// Max time difference for attestation validation (1 year for testing with old fixtures)
 const MAX_TIME_DIFF: u64 = 31536000;
 
@@ -41,22 +37,51 @@ fn load_root_certs() -> RootCerts {
     FileParser::<RootCerts>::parse_json(@file).expect('Failed to parse root_certs.json')
 }
 
+/// SP1 program ID config loaded from tests/fixtures/sp1_program_id.json
+/// Fields must be in alphabetical order (FileParser sorts JSON keys alphabetically)
+#[derive(Drop, Serde)]
+struct Sp1ProgramIdConfig {
+    high_bits: felt252,
+    low_bits: felt252,
+}
+
+fn load_sp1_program_id() -> Sp1ProgramIdConfig {
+    let file = FileTrait::new("../../tests/fixtures/sp1_program_id.json");
+    FileParser::<Sp1ProgramIdConfig>::parse_json(@file).expect('Failed: sp1_program_id.json')
+}
+
+/// Measurement config loaded from tests/fixtures/measurement.json
+/// Fields must be in alphabetical order (FileParser sorts JSON keys alphabetically)
+#[derive(Drop, Serde)]
+struct MeasurementConfig {
+    high_bits: felt252,
+    low_bits: felt252,
+    mid_bits: felt252,
+}
+
+fn load_measurement() -> MeasurementConfig {
+    let file = FileTrait::new("../../tests/fixtures/measurement.json");
+    FileParser::<MeasurementConfig>::parse_json(@file).expect('Failed: measurement.json')
+}
+
 /// Deploy the AMDTEERegistry contract in LIVE MODE (no pre-cached intermediates)
 fn deploy_amd_registry_live_mode() -> ContractAddress {
     let contract = declare("AMDTEERegistry").unwrap().contract_class();
     let certs = load_root_certs();
+    let sp1_id = load_sp1_program_id();
 
     // Constructor: verifier_class_hash, sp1_program_id (u256), max_time_diff,
     //              trusted_certs (array), processor_models (array), root_certs (array),
     //              storage_commitment_proxy (0 = disabled)
     let mut calldata: Array<felt252> = array![
-        GARAGA_CLASS_HASH, SP1_PROGRAM_ID_LOW, SP1_PROGRAM_ID_HIGH,
+        GARAGA_CLASS_HASH, sp1_id.low_bits, sp1_id.high_bits,
         MAX_TIME_DIFF.into(), // trusted_certs array - EMPTY for live mode
         0, // processor_models array (Genoa = 1)
         1, 1, // ProcessorType::Genoa
         // root_certs array (Genoa root cert hash)
         1,
         certs.genoa_ark_hash_low, certs.genoa_ark_hash_high,
+        0, // storage_commitment_proxy disabled
     ];
 
     let (contract_address, _) = contract.deploy(@calldata).unwrap();
@@ -81,10 +106,16 @@ fn deploy_katana_tee_and_storage_commitment_registry(
 ) -> (ContractAddress, ContractAddress) {
     let contract = declare("KatanaTee").unwrap().contract_class();
     let storage_commitment_registry = deploy_storage_commitment_registry();
+    let m = load_measurement();
 
+    // Constructor calldata:
+    // registry_address, storage_commitment_registry, measurement (Bytes48: low, mid, high)
     let mut calldata: Array<felt252> = array![];
     calldata.append(registry_address.into());
     calldata.append(storage_commitment_registry.into());
+    calldata.append(m.low_bits);
+    calldata.append(m.mid_bits);
+    calldata.append(m.high_bits);
 
     let (katana_contract_address, _) = contract.deploy(@calldata).unwrap();
 

@@ -24,6 +24,7 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 FIXTURES_ROOT="$PROJECT_ROOT/tests/fixtures"
 ROOT_CERTS_FILE="$FIXTURES_ROOT/root_certs.json"
 DEPLOYMENT_FILE="$FIXTURES_ROOT/deployment.json"
+SP1_PROGRAM_ID_FILE="$FIXTURES_ROOT/sp1_program_id.json"
 
 # Colors
 RED='\033[0;31m'
@@ -45,9 +46,66 @@ set +a
 DEVNET_URL="http://127.0.0.1:${DEVNET_PORT:-5051}"
 SNCAST_ACCOUNT="${SNCAST_ACCOUNT:-devnet_mainnet_0}"
 GARAGA_CLASS_HASH="0x4b22453df42037dd61390736454e8390910adfbbc1fa9d85613e6f375f4de22"
-SP1_PROGRAM_ID="0x00613d956661ba71ff3d4d75fba28b79ea077510823adf4b1255ada5d2977402"
 MAX_TIME_DIFF=86400
 DEVNET_PID=""
+
+# Load measurement from single-source-of-truth JSON
+load_measurement() {
+    local measurement_file="$FIXTURES_ROOT/measurement.json"
+    if [[ ! -f "$measurement_file" ]]; then
+        die "measurement.json not found at $measurement_file. Generate with: ./katana-tee-setup.sh measurement --save"
+    fi
+    # Read hex values using python3 (jq can't handle large integers)
+    MEASUREMENT_HEX=$(python3 -c "
+import json
+with open('$measurement_file') as f:
+    d = json.load(f)
+print(hex(int(str(d['low_bits']), 0)))
+print(hex(int(str(d['mid_bits']), 0)))
+print(hex(int(str(d['high_bits']), 0)))
+")
+    MEASUREMENT_LOW=$(echo "$MEASUREMENT_HEX" | sed -n '1p')
+    MEASUREMENT_MID=$(echo "$MEASUREMENT_HEX" | sed -n '2p')
+    MEASUREMENT_HIGH=$(echo "$MEASUREMENT_HEX" | sed -n '3p')
+    log "Measurement loaded: low=$MEASUREMENT_LOW mid=$MEASUREMENT_MID high=$MEASUREMENT_HIGH"
+}
+
+# Load SP1 program ID from single-source-of-truth JSON
+load_sp1_program_id() {
+    if [[ ! -f "$SP1_PROGRAM_ID_FILE" ]]; then
+        die "sp1_program_id.json not found at $SP1_PROGRAM_ID_FILE"
+    fi
+    SP1_PROGRAM_ID=$(python3 -c "
+import json
+with open('$SP1_PROGRAM_ID_FILE') as f:
+    d = json.load(f)
+low = int(str(d['low_bits']), 0)
+high = int(str(d['high_bits']), 0)
+print(hex((high << 128) | low))
+")
+    log "SP1 program ID loaded: $SP1_PROGRAM_ID"
+}
+
+# Retry a command up to N times with exponential backoff
+retry() {
+    local max_attempts=$1
+    local delay=$2
+    shift 2
+    local attempt=1
+    while true; do
+        if "$@"; then
+            return 0
+        fi
+        if [[ $attempt -ge $max_attempts ]]; then
+            error "Command failed after $max_attempts attempts: $*"
+            return 1
+        fi
+        warn "Attempt $attempt/$max_attempts failed, retrying in ${delay}s..."
+        sleep "$delay"
+        delay=$((delay * 2))
+        attempt=$((attempt + 1))
+    done
+}
 
 cleanup() {
     if [[ -n "$DEVNET_PID" ]]; then
@@ -217,6 +275,8 @@ EOF
 
 deploy_contracts() {
     log "Deploying contracts..."
+    load_measurement
+    load_sp1_program_id
 
     # Load root cert hashes (format: split into low/high as decimal integers)
     # Use Python to handle large integers (jq converts to scientific notation)
@@ -224,10 +284,10 @@ deploy_contracts() {
 import json
 with open('$ROOT_CERTS_FILE') as f:
     d = json.load(f)
-print(hex(int(d['milan_ark_hash_low'])))
-print(hex(int(d['milan_ark_hash_high'])))
-print(hex(int(d['genoa_ark_hash_low'])))
-print(hex(int(d['genoa_ark_hash_high'])))
+print(hex(int(str(d['milan_ark_hash_low']), 0)))
+print(hex(int(str(d['milan_ark_hash_high']), 0)))
+print(hex(int(str(d['genoa_ark_hash_low']), 0)))
+print(hex(int(str(d['genoa_ark_hash_high']), 0)))
 ")
     local milan_low=$(echo "$root_certs_hex" | sed -n '1p')
     local milan_high=$(echo "$root_certs_hex" | sed -n '2p')
@@ -253,7 +313,8 @@ print(hex(int(d['genoa_ark_hash_high'])))
     # Declare and deploy KatanaTee
     cd "$PROJECT_ROOT/contracts/katana_tee"
     local katana_class_hash=$(declare_contract "KatanaTee" "katana_tee")
-    local katana_address=$(deploy_contract "KatanaTee" "$katana_class_hash" "$amd_address")
+    # Constructor: registry_address, storage_commitment_registry, measurement (low, mid, high)
+    local katana_address=$(deploy_contract "KatanaTee" "$katana_class_hash" "$amd_address" "0" "$MEASUREMENT_LOW" "$MEASUREMENT_MID" "$MEASUREMENT_HIGH")
 
     # Verify registry linkage
     log "Verifying registry address linkage..."
@@ -305,7 +366,7 @@ generate_multi_block_proofs() {
             log "  Reusing existing attestation.json"
         else
             log "Fetching attestation for block $block_num..."
-            cargo run -p katana_tee_client --release --bin katana-tee -- \
+            retry 5 3 cargo run -p katana_tee_client --release --bin katana-tee -- \
                 fetch --rpc "$KATANA_RPC_URL" --output "$block_dir/attestation.json"
         fi
 
@@ -347,7 +408,7 @@ generate_multi_block_proofs() {
         # Advance to next block (except after last iteration)
         if [[ $block_num -lt 2 ]]; then
             advance_katana_block
-            sleep 2  # Brief pause for block propagation
+            sleep 5  # Wait for TEE node to produce next attestation
         fi
     done
 

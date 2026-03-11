@@ -23,17 +23,17 @@ use starknet_rust::{
     providers::{jsonrpc::HttpTransport, JsonRpcClient, Provider, Url},
     signers::{LocalWallet, SigningKey},
 };
-use tracing::{info, warn};
+use tracing::info;
 
 const GARAGA_CLASS_HASH: &str = "0x4b22453df42037dd61390736454e8390910adfbbc1fa9d85613e6f375f4de22";
-/// Fallback SP1 program ID (low/high) when snp-attest-cli is not runnable.
-const SP1_LOW_FALLBACK: &str = "0x1b7c8b4845b3d9ade0f084ea994f8323";
-const SP1_HIGH_FALLBACK: &str = "0x00e7f4210229b46f94bd8bced85e5a1b";
 const MAX_TIME_DIFF: u64 = 86400;
 const MILAN_LOW: &str = "326103188097639633505521426987620764621";
 const MILAN_HIGH: &str = "140650959549381881311165088169387222174";
 const GENOA_LOW: &str = "122279190577630630319986709203695547121";
 const GENOA_HIGH: &str = "101548849195620556729999786649524856654";
+const MEASUREMENT_LOW: &str = "0x34d8a0707c0c05f3981f72417a566530";
+const MEASUREMENT_MID: &str = "0xb57365ef3473d3a5638074691e9b53d1";
+const MEASUREMENT_HIGH: &str = "0x15e6b5f30c6d211c0f87dcb7dce00218";
 
 #[derive(Args, Debug, Clone)]
 pub struct InitArgs {
@@ -78,7 +78,7 @@ pub struct InitArgs {
     #[arg(long)]
     pub sp1_program_id: Option<String>,
 
-    /// Do not run snp-attest-cli to fetch SP1 program ID; use fallback (requires --sp1-program-id or fallback constants)
+    /// Do not run snp-attest-cli to fetch SP1 program ID; requires --sp1-program-id
     #[arg(long)]
     pub no_fetch_sp1_program_id: bool,
 
@@ -226,8 +226,15 @@ pub async fn run_init(args: InitArgs) -> Result<()> {
         let _ = watch_tx(&provider, tx_result.transaction_hash, POLLING_INTERVAL).await;
     }
 
-    // KatanaTee constructor: registry_address, storage_commitment_registry
-    let katana_calldata = vec![amd_address, storage_commitment_address];
+    // KatanaTee constructor:
+    // registry_address, storage_commitment_registry, measurement (low, mid, high)
+    let katana_calldata = vec![
+        amd_address,
+        storage_commitment_address,
+        Felt::from_hex(MEASUREMENT_LOW).unwrap(),
+        Felt::from_hex(MEASUREMENT_MID).unwrap(),
+        Felt::from_hex(MEASUREMENT_HIGH).unwrap(),
+    ];
 
     let (maybe_tx, katana_address) = deploy::deploy(
         &account,
@@ -306,36 +313,22 @@ pub async fn run_init(args: InitArgs) -> Result<()> {
     Ok(())
 }
 
-/// Resolve SP1 program ID: from --sp1-program-id, or by running snp-attest-cli, or fallback constants.
+/// Resolve SP1 program ID: from --sp1-program-id, or by running snp-attest-cli.
 /// Returns (low, high) as u256 for constructor calldata (low = last 16 bytes, high = first 16 bytes).
 fn resolve_sp1_program_id(args: &InitArgs) -> Result<(Felt, Felt)> {
     if let Some(ref hex_id) = args.sp1_program_id {
         info!("Using SP1 program ID from --sp1-program-id argument");
         return parse_program_id_hex(hex_id).context("invalid --sp1-program-id hex");
     }
-    if !args.no_fetch_sp1_program_id {
-        match fetch_sp1_program_id_from_cli(args.sdk_path.as_deref()) {
-            Ok((low, high)) => {
-                info!("Using SP1 program ID fetched from snp-attest-cli");
-                return Ok((low, high));
-            }
-            Err(e) => {
-                warn!("Failed to fetch SP1 program ID from snp-attest-cli: {:#}", e);
-            }
-        }
+    if args.no_fetch_sp1_program_id {
+        anyhow::bail!(
+            "--no-fetch-sp1-program-id requires --sp1-program-id (no fallback is allowed)"
+        );
     }
-    warn!(
-        "WARNING: Using HARDCODED FALLBACK SP1 program ID! This may not match the current SP1 circuit. \
-         Use --sp1-program-id to specify the correct value, or run from repo root so snp-attest-cli can be found."
-    );
-    warn!(
-        "Fallback SP1 program ID: high={} low={}",
-        SP1_HIGH_FALLBACK, SP1_LOW_FALLBACK
-    );
-    Ok((
-        Felt::from_hex(SP1_LOW_FALLBACK).context("fallback SP1 low")?,
-        Felt::from_hex(SP1_HIGH_FALLBACK).context("fallback SP1 high")?,
-    ))
+    let (low, high) = fetch_sp1_program_id_from_cli(args.sdk_path.as_deref())
+        .context("failed to fetch SP1 program ID from snp-attest-cli; pass --sp1-program-id to override")?;
+    info!("Using SP1 program ID fetched from snp-attest-cli");
+    Ok((low, high))
 }
 
 /// Parse "0x" + 64 hex chars into (low, high) felt. Low = last 16 bytes, high = first 16 bytes.

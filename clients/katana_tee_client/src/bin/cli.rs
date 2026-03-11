@@ -38,6 +38,14 @@ enum Commands {
         /// Output file path (optional, prints to stdout if not specified)
         #[arg(short, long)]
         output: Option<PathBuf>,
+
+        /// Previous block number passed to `tee_generateQuote`
+        #[arg(long, default_value_t = 0)]
+        prev_block_number: u64,
+
+        /// Block number passed to `tee_generateQuote`
+        #[arg(long, default_value_t = 0)]
+        block_number: u64,
     },
 
     /// Execute the SP1 program in mock mode (fast, no real proof)
@@ -62,6 +70,14 @@ enum Commands {
         /// AMD TEE registry contract address (hex felt)
         #[arg(long, required = true)]
         registry: String,
+
+        /// Previous block number passed to `tee_generateQuote` (used when --json is not set)
+        #[arg(long, default_value_t = 0)]
+        prev_block_number: u64,
+
+        /// Block number passed to `tee_generateQuote` (used when --json is not set)
+        #[arg(long, default_value_t = 0)]
+        block_number: u64,
     },
 
     /// Generate an SP1 Groth16 proof
@@ -106,6 +122,14 @@ enum Commands {
         /// Output file for the proof
         #[arg(short, long, default_value = "proof_output.json")]
         output: PathBuf,
+
+        /// Previous block number passed to `tee_generateQuote` (used when --json is not set)
+        #[arg(long, default_value_t = 0)]
+        prev_block_number: u64,
+
+        /// Block number passed to `tee_generateQuote` (used when --json is not set)
+        #[arg(long, default_value_t = 0)]
+        block_number: u64,
     },
 
     /// Full pipeline: fetch quote → query cache → prove → calldata → invoke `katana_tee`
@@ -178,6 +202,14 @@ enum Commands {
         /// Do not submit transaction; only generate proof + calldata
         #[arg(long)]
         dry_run: bool,
+
+        /// Previous block number passed to `tee_generateQuote` (used when --json is not set)
+        #[arg(long, default_value_t = 0)]
+        prev_block_number: u64,
+
+        /// Block number passed to `tee_generateQuote` (used when --json is not set)
+        #[arg(long, default_value_t = 0)]
+        block_number: u64,
     },
 
     /// Display information about a proof file
@@ -246,13 +278,30 @@ async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Fetch { rpc, output } => cmd_fetch(&rpc, output).await,
+        Commands::Fetch {
+            rpc,
+            output,
+            prev_block_number,
+            block_number,
+        } => cmd_fetch(&rpc, output, prev_block_number, block_number).await,
         Commands::Execute {
             rpc,
             json,
             starknet_rpc,
             registry,
-        } => cmd_execute(&rpc, json, starknet_rpc, &registry).await,
+            prev_block_number,
+            block_number,
+        } => {
+            cmd_execute(
+                &rpc,
+                json,
+                starknet_rpc,
+                &registry,
+                prev_block_number,
+                block_number,
+            )
+            .await
+        }
         Commands::Prove {
             rpc,
             json,
@@ -263,6 +312,8 @@ async fn main() -> anyhow::Result<()> {
             sp1_rpc_url,
             skip_time_validity_check,
             output,
+            prev_block_number,
+            block_number,
         } => {
             cmd_prove(
                 &rpc,
@@ -274,6 +325,8 @@ async fn main() -> anyhow::Result<()> {
                 sp1_rpc_url,
                 skip_time_validity_check,
                 &output,
+                prev_block_number,
+                block_number,
             )
             .await
         }
@@ -294,6 +347,8 @@ async fn main() -> anyhow::Result<()> {
             account_private_key,
             account_encoding,
             dry_run,
+            prev_block_number,
+            block_number,
         } => {
             cmd_pipeline(
                 &rpc,
@@ -312,6 +367,8 @@ async fn main() -> anyhow::Result<()> {
                 account_private_key,
                 &account_encoding,
                 dry_run,
+                prev_block_number,
+                block_number,
             )
             .await
         }
@@ -329,11 +386,18 @@ async fn main() -> anyhow::Result<()> {
     }
 }
 
-async fn cmd_fetch(rpc: &str, output: Option<PathBuf>) -> anyhow::Result<()> {
+async fn cmd_fetch(
+    rpc: &str,
+    output: Option<PathBuf>,
+    prev_block_number: u64,
+    block_number: u64,
+) -> anyhow::Result<()> {
     println!("🌐 Fetching attestation from: {}", rpc);
 
     let client = KatanaRpcClient::new(rpc);
-    let attestation = client.fetch_attestation().await?;
+    let attestation = client
+        .fetch_attestation(prev_block_number, block_number)
+        .await?;
 
     println!("✅ Attestation received");
     println!();
@@ -365,13 +429,15 @@ async fn cmd_execute(
     json: Option<PathBuf>,
     starknet_rpc: Option<String>,
     registry: &str,
+    prev_block_number: u64,
+    block_number: u64,
 ) -> anyhow::Result<()> {
     let starknet_rpc = starknet_rpc.unwrap_or_else(|| rpc.to_string());
 
     // Force mock mode
     std::env::set_var("SP1_PROVER", "mock");
 
-    let attestation = get_attestation(rpc, json).await?;
+    let attestation = get_attestation(rpc, json, prev_block_number, block_number).await?;
 
     println!();
     println!("📋 Attestation:");
@@ -418,6 +484,8 @@ async fn cmd_prove(
     sp1_rpc_url: Option<String>,
     skip_time_validity_check: bool,
     output: &PathBuf,
+    prev_block_number: u64,
+    block_number: u64,
 ) -> anyhow::Result<()> {
     let starknet_rpc = starknet_rpc.unwrap_or_else(|| rpc.to_string());
 
@@ -436,7 +504,7 @@ async fn cmd_prove(
         );
     }
 
-    let attestation = get_attestation(rpc, json).await?;
+    let attestation = get_attestation(rpc, json, prev_block_number, block_number).await?;
 
     println!();
     println!("📋 Attestation:");
@@ -538,10 +606,12 @@ async fn cmd_pipeline(
     account_private_key: Option<String>,
     account_encoding: &str,
     dry_run: bool,
+    prev_block_number: u64,
+    block_number: u64,
 ) -> anyhow::Result<()> {
     let starknet_rpc = starknet_rpc.unwrap_or_else(|| rpc.to_string());
 
-    let attestation = get_attestation(rpc, json).await?;
+    let attestation = get_attestation(rpc, json, prev_block_number, block_number).await?;
 
     let state_root = felt_from_hex(&attestation.state_root)?;
     let block_hash = felt_from_hex(&attestation.block_hash)?;
@@ -656,7 +726,12 @@ async fn cmd_pipeline(
     Ok(())
 }
 
-async fn get_attestation(rpc: &str, json: Option<PathBuf>) -> anyhow::Result<TeeQuoteResponse> {
+async fn get_attestation(
+    rpc: &str,
+    json: Option<PathBuf>,
+    prev_block_number: u64,
+    block_number: u64,
+) -> anyhow::Result<TeeQuoteResponse> {
     match json {
         Some(path) => {
             println!("📄 Loading attestation from: {}", path.display());
@@ -665,7 +740,9 @@ async fn get_attestation(rpc: &str, json: Option<PathBuf>) -> anyhow::Result<Tee
         None => {
             println!("🌐 Fetching attestation from: {}", rpc);
             let client = KatanaRpcClient::new(rpc);
-            Ok(client.fetch_attestation().await?)
+            Ok(client
+                .fetch_attestation(prev_block_number, block_number)
+                .await?)
         }
     }
 }
