@@ -23,6 +23,7 @@ pub trait IKatanaTee<TContractState> {
         block_number: u64,
         fork_block_number: u64,
         events_commitment: felt252,
+        args_hash: u256,
     ) -> Result<(bool, u64), felt252>;
 
     /// Get the AMD TEE Registry contract address.
@@ -98,6 +99,7 @@ pub mod KatanaTee {
             block_number: u64,
             fork_block_number: u64,
             events_commitment: felt252,
+            args_hash: u256,
         ) -> Result<(bool, u64), felt252> {
             let registry = IAMDTeeRegistryDispatcher {
                 contract_address: self.registry_address.read(),
@@ -112,7 +114,7 @@ pub mod KatanaTee {
 
                     let report_data = raw_report.report_data();
                     verify_katana_report_data(
-                        report_data, state_root, block_hash, fork_block_number, events_commitment,
+                        report_data, state_root, block_hash, fork_block_number, events_commitment, args_hash,
                     );
 
                     self.latest_state_root.write(state_root);
