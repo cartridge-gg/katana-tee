@@ -419,6 +419,15 @@ fn resolve_measurement(config: &InitConfig) -> Result<(Felt, Felt, Felt), InitEr
 }
 
 /// Parse 96-char hex (48 bytes) into 3 Cairo felt252 limbs (low, mid, high).
+///
+/// snp-digest outputs LAUNCH_DIGEST as big-endian hex, but Cairo's `get_u128_at`
+/// reads the AMD attestation report as little-endian u32 words. Each 16-byte limb
+/// must be byte-reversed to match the on-chain representation.
+///
+/// Example: hex "fe22863a1438c321a0cdaaf52241caf0" (big-endian)
+///   → bytes: [fe, 22, 86, 3a, 14, 38, c3, 21, a0, cd, aa, f5, 22, 41, ca, f0]
+///   → reversed: [f0, ca, 41, 22, f5, aa, cd, a0, 21, c3, 38, 14, 3a, 86, 22, fe]
+///   → u128 LE: 0xfe2286_3a1438c321a0cdaaf52241caf0 → 0xf0ca4122f5aacda021c338143a8622fe
 fn parse_measurement_hex(hex: &str) -> Result<(Felt, Felt, Felt), InitError> {
     let s = hex.trim().strip_prefix("0x").unwrap_or(hex.trim());
     if s.len() != 96 || !s.chars().all(|c| c.is_ascii_hexdigit()) {
@@ -432,27 +441,32 @@ fn parse_measurement_hex(hex: &str) -> Result<(Felt, Felt, Felt), InitError> {
         });
     }
 
-    // Split into 3 × 32-char (16-byte) limbs
-    let low = Felt::from_hex(&format!("0x{}", &s[0..32])).map_err(|e| {
-        InitError::InvalidArgument {
-            field: "--measurement",
-            message: format!("invalid low limb: {e}"),
-        }
-    })?;
-    let mid = Felt::from_hex(&format!("0x{}", &s[32..64])).map_err(|e| {
-        InitError::InvalidArgument {
-            field: "--measurement",
-            message: format!("invalid mid limb: {e}"),
-        }
-    })?;
-    let high = Felt::from_hex(&format!("0x{}", &s[64..96])).map_err(|e| {
-        InitError::InvalidArgument {
-            field: "--measurement",
-            message: format!("invalid high limb: {e}"),
-        }
-    })?;
+    // Split into 3 × 16-byte chunks, byte-reverse each for little-endian u128.
+    let low = reverse_hex_bytes(&s[0..32])?;
+    let mid = reverse_hex_bytes(&s[32..64])?;
+    let high = reverse_hex_bytes(&s[64..96])?;
 
     Ok((low, mid, high))
+}
+
+/// Reverse byte order of a 32-char hex string (16 bytes) and parse as Felt.
+///
+/// "fe22863a1438c321a0cdaaf52241caf0" → "f0ca4122f5aacda021c338143a8622fe"
+fn reverse_hex_bytes(hex_chunk: &str) -> Result<Felt, InitError> {
+    let bytes: Vec<u8> = (0..hex_chunk.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&hex_chunk[i..i + 2], 16))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| InitError::InvalidArgument {
+            field: "--measurement",
+            message: format!("invalid hex: {e}"),
+        })?;
+
+    let reversed: String = bytes.iter().rev().map(|b| format!("{:02x}", b)).collect();
+    Felt::from_hex(&format!("0x{reversed}")).map_err(|e| InitError::InvalidArgument {
+        field: "--measurement",
+        message: format!("invalid limb after byte-reverse: {e}"),
+    })
 }
 
 /// Read LAUNCH_DIGEST=<hex> from a measurement file.
@@ -749,4 +763,51 @@ fn rebuild_sp1_program_artifacts(sdk_path: &Path) -> Result<(), InitError> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reverse_hex_bytes_reverses_correctly() {
+        let result = reverse_hex_bytes("fe22863a1438c321a0cdaaf52241caf0").unwrap();
+        assert_eq!(
+            result,
+            Felt::from_hex("0xf0ca4122f5aacda021c338143a8622fe").unwrap()
+        );
+    }
+
+    #[test]
+    fn parse_measurement_matches_old_hardcoded_constants() {
+        // The old hardcoded constants that worked on-chain were little-endian u128:
+        //   LOW  = 0x34d8a0707c0c05f3981f72417a566530
+        //   MID  = 0xb57365ef3473d3a5638074691e9b53d1
+        //   HIGH = 0x15e6b5f30c6d211c0f87dcb7dce00218
+        //
+        // The corresponding big-endian hex (snp-digest output) is each limb byte-reversed.
+        let big_endian_hex = concat!(
+            "3065567a41721f98f3050c7c70a0d834",
+            "d1539b1e69748063a5d37334ef6573b5",
+            "1802e0dcb7dc870f1c216d0cf3b5e615",
+        );
+
+        let (low, mid, high) = parse_measurement_hex(big_endian_hex).unwrap();
+
+        assert_eq!(low, Felt::from_hex("0x34d8a0707c0c05f3981f72417a566530").unwrap(), "low");
+        assert_eq!(mid, Felt::from_hex("0xb57365ef3473d3a5638074691e9b53d1").unwrap(), "mid");
+        assert_eq!(high, Felt::from_hex("0x15e6b5f30c6d211c0f87dcb7dce00218").unwrap(), "high");
+    }
+
+    #[test]
+    fn parse_measurement_rejects_wrong_length() {
+        assert!(parse_measurement_hex("deadbeef").is_err());
+        assert!(parse_measurement_hex("").is_err());
+    }
+
+    #[test]
+    fn parse_measurement_accepts_0x_prefix() {
+        let hex = "0x3065567a41721f98f3050c7c70a0d834d1539b1e69748063a5d37334ef6573b51802e0dcb7dc870f1c216d0cf3b5e615";
+        assert!(parse_measurement_hex(hex).is_ok());
+    }
 }
