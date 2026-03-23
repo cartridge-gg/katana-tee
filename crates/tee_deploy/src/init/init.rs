@@ -382,6 +382,7 @@ async fn set_authorized_caller(
             selector,
             calldata: vec![katana_address],
         }])
+        .gas_estimate_multiplier(3.0)
         .send()
         .await
         .map_err(|e| InitError::Call(Box::new(e)))?;
