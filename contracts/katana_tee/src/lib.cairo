@@ -109,7 +109,6 @@ pub mod KatanaTee {
                     let raw_report = RawAttestationReport { raw: journal.raw_report };
 
                     let measurement = raw_report.measurement();
-                    println!("[KatanaTee] Measurement: {:?}", measurement);
                     assert(measurement == self.get_measurement(), 'Measurement mismatch');
 
                     let report_data = raw_report.report_data();
