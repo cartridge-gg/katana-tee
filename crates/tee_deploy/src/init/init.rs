@@ -30,9 +30,6 @@ const MILAN_LOW: &str = "326103188097639633505521426987620764621";
 const MILAN_HIGH: &str = "140650959549381881311165088169387222174";
 const GENOA_LOW: &str = "122279190577630630319986709203695547121";
 const GENOA_HIGH: &str = "101548849195620556729999786649524856654";
-const MEASUREMENT_LOW: &str = "0x34d8a0707c0c05f3981f72417a566530";
-const MEASUREMENT_MID: &str = "0xb57365ef3473d3a5638074691e9b53d1";
-const MEASUREMENT_HIGH: &str = "0x15e6b5f30c6d211c0f87dcb7dce00218";
 const DEFAULT_AMD_CLASS_PATH: &str = "target/dev/amd_tee_registry_AMDTEERegistry.contract_class.json";
 const DEFAULT_KATANA_CLASS_PATH: &str = "target/dev/katana_tee_KatanaTee.contract_class.json";
 const DEFAULT_STORAGE_COMMITMENT_CLASS_PATH: &str =
@@ -52,6 +49,8 @@ pub struct InitConfig {
     pub no_fetch_sp1_program_id: bool,
     pub sdk_path: Option<PathBuf>,
     pub reuse_existing_sp1_elf: bool,
+    pub measurement: Option<String>,
+    pub measurement_file: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -118,6 +117,16 @@ pub struct InitArgs {
     /// was last built.
     #[arg(long, default_value_t = false)]
     pub reuse_existing_sp1_elf: bool,
+
+    /// TEE measurement (LAUNCH_DIGEST) as 96-char hex string.
+    /// Overrides the compiled-in default. Use the value from `sharding-deploy build` output.
+    #[arg(long)]
+    pub measurement: Option<String>,
+
+    /// Path to measurement file (e.g. output/qemu/measurement.txt from sharding-deploy build).
+    /// Reads LAUNCH_DIGEST=<hex> line from the file.
+    #[arg(long)]
+    pub measurement_file: Option<String>,
 }
 
 impl InitArgs {
@@ -157,6 +166,8 @@ impl InitArgs {
             no_fetch_sp1_program_id: self.no_fetch_sp1_program_id,
             sdk_path: Some(resolve_sdk_path(self.sdk_path.as_deref())?),
             reuse_existing_sp1_elf: self.reuse_existing_sp1_elf,
+            measurement: self.measurement,
+            measurement_file: self.measurement_file,
         })
     }
 }
@@ -249,12 +260,18 @@ pub async fn run_init_config(config: InitConfig) -> Result<InitOutcome, InitErro
     )
     .await?;
 
+    let (meas_low, meas_mid, meas_high) = resolve_measurement(&config)?;
+    info!(
+        "Measurement: low={:#x}, mid={:#x}, high={:#x}",
+        meas_low, meas_mid, meas_high
+    );
+
     let katana_calldata = vec![
         amd_address,
         storage_commitment_address,
-        Felt::from_hex(MEASUREMENT_LOW).expect("valid constant"),
-        Felt::from_hex(MEASUREMENT_MID).expect("valid constant"),
-        Felt::from_hex(MEASUREMENT_HIGH).expect("valid constant"),
+        meas_low,
+        meas_mid,
+        meas_high,
     ];
 
     let (katana_address, deployment_block) = deploy_with_wait(
@@ -376,6 +393,85 @@ async fn set_authorized_caller(
     let _ = watch_tx(provider, tx.transaction_hash, POLLING_INTERVAL).await?;
     info!("StorageCommitment authorized caller set to KatanaTee");
     Ok(())
+}
+
+/// Resolve TEE measurement (LAUNCH_DIGEST) from --measurement, --measurement-file, or error.
+///
+/// The measurement is a 48-byte (96 hex chars) AMD SEV-SNP launch digest.
+/// It is split into 3 × 16-byte limbs for Cairo's Bytes48 type.
+fn resolve_measurement(config: &InitConfig) -> Result<(Felt, Felt, Felt), InitError> {
+    let hex = if let Some(ref m) = config.measurement {
+        m.clone()
+    } else if let Some(ref path) = config.measurement_file {
+        read_measurement_from_file(path)?
+    } else {
+        return Err(InitError::InvalidArgument {
+            field: "--measurement",
+            message: "TEE measurement is required. Pass --measurement <96-char-hex> or \
+                      --measurement-file <path> (e.g. output/qemu/measurement.txt from \
+                      sharding-deploy build)"
+                .to_string(),
+        });
+    };
+
+    parse_measurement_hex(&hex)
+}
+
+/// Parse 96-char hex (48 bytes) into 3 Cairo felt252 limbs (low, mid, high).
+fn parse_measurement_hex(hex: &str) -> Result<(Felt, Felt, Felt), InitError> {
+    let s = hex.trim().strip_prefix("0x").unwrap_or(hex.trim());
+    if s.len() != 96 || !s.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(InitError::InvalidArgument {
+            field: "--measurement",
+            message: format!(
+                "expected 48-byte hex (96 chars), got {} chars: '{}'",
+                s.len(),
+                &hex[..hex.len().min(40)]
+            ),
+        });
+    }
+
+    // Split into 3 × 32-char (16-byte) limbs
+    let low = Felt::from_hex(&format!("0x{}", &s[0..32])).map_err(|e| {
+        InitError::InvalidArgument {
+            field: "--measurement",
+            message: format!("invalid low limb: {e}"),
+        }
+    })?;
+    let mid = Felt::from_hex(&format!("0x{}", &s[32..64])).map_err(|e| {
+        InitError::InvalidArgument {
+            field: "--measurement",
+            message: format!("invalid mid limb: {e}"),
+        }
+    })?;
+    let high = Felt::from_hex(&format!("0x{}", &s[64..96])).map_err(|e| {
+        InitError::InvalidArgument {
+            field: "--measurement",
+            message: format!("invalid high limb: {e}"),
+        }
+    })?;
+
+    Ok((low, mid, high))
+}
+
+/// Read LAUNCH_DIGEST=<hex> from a measurement file.
+fn read_measurement_from_file(path: &str) -> Result<String, InitError> {
+    let content = fs::read_to_string(path).map_err(|e| InitError::InvalidArgument {
+        field: "--measurement-file",
+        message: format!("cannot read '{}': {}", path, e),
+    })?;
+
+    for line in content.lines() {
+        let line = line.trim();
+        if let Some(value) = line.strip_prefix("LAUNCH_DIGEST=") {
+            return Ok(value.trim().to_string());
+        }
+    }
+
+    Err(InitError::InvalidArgument {
+        field: "--measurement-file",
+        message: format!("no LAUNCH_DIGEST=<hex> line found in '{}'", path),
+    })
 }
 
 fn resolve_salt(salt_hex: Option<&String>) -> Result<Option<Felt>, InitError> {
