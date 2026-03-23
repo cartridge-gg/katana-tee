@@ -1,28 +1,27 @@
 //! Declare and deploy AMDTeeRegistry and KatanaTee on Starknet.
 //!
-//! Run `scarb build` from repo root first. Before deploy, SP1 program ID is computed
-//! via `cargo run -p snp-attest-cli --release -- program-id --sp1` in the SDK dir
+//! Missing Cairo contract artifacts are built automatically with `scarb build`.
+//! Before deploy, SP1 program ID is computed via
+//! `cargo run -p snp-attest-cli --release -- program-id --sp1` in the SDK dir
 //! (unless overridden with --sp1-program-id or --no-fetch-sp1-program-id).
 
-use std::path::Path;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::str::FromStr;
-use std::sync::Arc;
 
 use super::declare::declare_contract;
 use super::deploy;
-use crate::helpers::{watch_tx, POLLING_INTERVAL};
+use super::error::InitError;
+use crate::helpers::{
+    POLLING_INTERVAL, StarknetAccount, StarknetProvider, parse_hex_arg, setup_provider_and_account,
+    validate_hex_arg, validate_optional_hex_arg, watch_tx,
+};
 use crate::state::DeploymentState;
-use anyhow::{Context, Result};
 use clap::Args;
 use rand::random;
 use starknet_core::types::{Call, Felt};
 use starknet_core::utils::get_selector_from_name;
-use starknet_rust::{
-    accounts::{Account, SingleOwnerAccount},
-    providers::{jsonrpc::HttpTransport, JsonRpcClient, Provider, Url},
-    signers::{LocalWallet, SigningKey},
-};
+use starknet_rust::accounts::Account;
 use tracing::info;
 
 const GARAGA_CLASS_HASH: &str = "0x4b22453df42037dd61390736454e8390910adfbbc1fa9d85613e6f375f4de22";
@@ -34,6 +33,34 @@ const GENOA_HIGH: &str = "101548849195620556729999786649524856654";
 const MEASUREMENT_LOW: &str = "0x34d8a0707c0c05f3981f72417a566530";
 const MEASUREMENT_MID: &str = "0xb57365ef3473d3a5638074691e9b53d1";
 const MEASUREMENT_HIGH: &str = "0x15e6b5f30c6d211c0f87dcb7dce00218";
+const DEFAULT_AMD_CLASS_PATH: &str = "target/dev/amd_tee_registry_AMDTEERegistry.contract_class.json";
+const DEFAULT_KATANA_CLASS_PATH: &str = "target/dev/katana_tee_KatanaTee.contract_class.json";
+const DEFAULT_STORAGE_COMMITMENT_CLASS_PATH: &str =
+    "target/dev/storage_commitment_StorageCommitment.contract_class.json";
+const DEFAULT_SDK_PATH: &str = "crates/amd-sev-snp-attestation-sdk";
+
+#[derive(Debug, Clone)]
+pub struct InitConfig {
+    pub private_key: String,
+    pub address: String,
+    pub provider_url: String,
+    pub salt: Option<Felt>,
+    pub amd_contract_class_path: PathBuf,
+    pub katana_contract_class_path: PathBuf,
+    pub storage_commitment_contract_class_path: PathBuf,
+    pub sp1_program_id: Option<String>,
+    pub no_fetch_sp1_program_id: bool,
+    pub sdk_path: Option<PathBuf>,
+    pub reuse_existing_sp1_elf: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct InitOutcome {
+    pub deployment_block: Option<u64>,
+    pub amd_tee_registry_address: String,
+    pub katana_tee_address: String,
+    pub storage_commitment_address: String,
+}
 
 #[derive(Args, Debug, Clone)]
 pub struct InitArgs {
@@ -53,24 +80,24 @@ pub struct InitArgs {
     #[arg(long)]
     pub salt: Option<String>,
 
-    /// Path to AMDTeeRegistry Sierra contract class JSON (run `scarb build` from repo root first)
+    /// Path to AMDTeeRegistry Sierra contract class JSON
     #[arg(
         long,
-        default_value = "target/dev/amd_tee_registry_AMDTEERegistry.contract_class.json"
+        default_value = DEFAULT_AMD_CLASS_PATH
     )]
     pub amd_contract_class_path: String,
 
-    /// Path to KatanaTee Sierra contract class JSON (run `scarb build` from repo root first)
+    /// Path to KatanaTee Sierra contract class JSON
     #[arg(
         long,
-        default_value = "target/dev/katana_tee_KatanaTee.contract_class.json"
+        default_value = DEFAULT_KATANA_CLASS_PATH
     )]
     pub katana_contract_class_path: String,
 
-    /// Path to StorageCommitment Sierra contract class JSON (run `scarb build` from repo root first)
+    /// Path to StorageCommitment Sierra contract class JSON
     #[arg(
         long,
-        default_value = "target/dev/storage_commitment_StorageCommitment.contract_class.json"
+        default_value = DEFAULT_STORAGE_COMMITMENT_CLASS_PATH
     )]
     pub storage_commitment_contract_class_path: String,
 
@@ -85,210 +112,162 @@ pub struct InitArgs {
     /// Path to amd-sev-snp-attestation-sdk (for `cargo run -p snp-attest-cli -- program-id --sp1`). Default: ./crates/amd-sev-snp-attestation-sdk
     #[arg(long)]
     pub sdk_path: Option<String>,
+
+    /// Reuse the existing SP1 ELF instead of forcing a fresh rebuild before
+    /// auto-fetching the program ID. Unsafe if guest code changed since the ELF
+    /// was last built.
+    #[arg(long, default_value_t = false)]
+    pub reuse_existing_sp1_elf: bool,
 }
 
-pub async fn run_init(args: InitArgs) -> Result<()> {
-    let provider = Arc::new(JsonRpcClient::new(HttpTransport::new(
-        Url::from_str(&args.provider_url).context("invalid provider URL")?,
-    )));
+impl InitArgs {
+    pub fn validate(&self) -> Result<(), InitError> {
+        validate_hex_arg(&self.private_key, "--private-key")?;
+        validate_hex_arg(&self.address, "--address")?;
+        validate_optional_hex_arg(&self.salt, "--salt")?;
 
-    let signer: LocalWallet = LocalWallet::from_signing_key(SigningKey::from_secret_scalar(
-        Felt::from_hex(&args.private_key).context("invalid private key")?,
-    ));
+        if let Some(ref program_id) = self.sp1_program_id {
+            parse_program_id_hex(program_id)?;
+        }
 
-    let address = Felt::from_hex(&args.address).context("invalid address")?;
+        if self.no_fetch_sp1_program_id && self.sp1_program_id.is_none() {
+            return Err(InitError::InvalidArgument {
+                field: "--no-fetch-sp1-program-id",
+                message: "requires --sp1-program-id because no fallback is allowed".to_string(),
+            });
+        }
 
-    let chain_id = provider
-        .chain_id()
-        .await
-        .context("failed to fetch chain id")?;
+        Ok(())
+    }
 
-    let encoding = starknet_rust::accounts::ExecutionEncoding::New;
-    let mut account: SingleOwnerAccount<Arc<JsonRpcClient<HttpTransport>>, LocalWallet> =
-        SingleOwnerAccount::new(provider.clone(), signer, address, chain_id, encoding);
-    // Use pre-confirmed block for nonce to avoid nonce mismatch after waiting for tx confirmation
+    pub fn into_config(self) -> Result<InitConfig, InitError> {
+        self.validate()?;
+        let (amd_contract_class_path, katana_contract_class_path, storage_commitment_contract_class_path) =
+            resolve_contract_class_paths(&self)?;
+
+        Ok(InitConfig {
+            private_key: self.private_key,
+            address: self.address,
+            provider_url: self.provider_url,
+            salt: resolve_salt(self.salt.as_ref())?,
+            amd_contract_class_path,
+            katana_contract_class_path,
+            storage_commitment_contract_class_path,
+            sp1_program_id: self.sp1_program_id,
+            no_fetch_sp1_program_id: self.no_fetch_sp1_program_id,
+            sdk_path: Some(resolve_sdk_path(self.sdk_path.as_deref())?),
+            reuse_existing_sp1_elf: self.reuse_existing_sp1_elf,
+        })
+    }
+}
+
+pub async fn run_init(args: InitArgs) -> Result<InitOutcome, InitError> {
+    run_init_config(args.into_config()?).await
+}
+
+pub async fn run_init_config(config: InitConfig) -> Result<InitOutcome, InitError> {
+    let (provider, mut account) = setup_provider_and_account(
+        &config.provider_url,
+        &config.private_key,
+        &config.address,
+    )
+    .await?;
+    // Use pre-confirmed block for nonce to avoid nonce mismatch after waiting for tx confirmation.
     account.set_block_id(starknet_core::types::BlockId::Tag(
         starknet_core::types::BlockTag::PreConfirmed,
     ));
 
-    // Declare AMDTeeRegistry
-    let (maybe_tx, amd_class_hash) = declare_contract(&account, &args.amd_contract_class_path)
-        .await
-        .map_err(|e| anyhow::anyhow!("declare AMDTeeRegistry: {}", e))?;
+    let address = parse_hex_arg(&config.address, "--address")?;
+    let salt = config.salt.unwrap_or_else(random_salt);
 
-    if let Some(tx) = maybe_tx {
-        info!("Waiting for AMDTeeRegistry declaration to be confirmed...");
-        let _ = watch_tx(&provider, tx.transaction_hash, POLLING_INTERVAL).await;
-    }
-
-    // Declare KatanaTee
-    let (maybe_tx, katana_class_hash) =
-        declare_contract(&account, &args.katana_contract_class_path)
-            .await
-            .map_err(|e| anyhow::anyhow!("declare KatanaTee: {}", e))?;
-
-    if let Some(ref tx) = maybe_tx {
-        info!("Waiting for KatanaTee declaration to be confirmed...");
-        let _ = watch_tx(&provider, tx.transaction_hash, POLLING_INTERVAL).await;
-    }
-
-    // Declare StorageCommitment
-    let (maybe_tx, storage_commitment_class_hash) =
-        declare_contract(&account, &args.storage_commitment_contract_class_path)
-            .await
-            .map_err(|e| anyhow::anyhow!("declare StorageCommitment: {}", e))?;
-
-    if let Some(ref tx) = maybe_tx {
-        info!("Waiting for StorageCommitment declaration to be confirmed...");
-        let _ = watch_tx(&provider, tx.transaction_hash, POLLING_INTERVAL).await;
-    }
+    let amd_class_hash = declare_with_wait(
+        &provider,
+        &account,
+        "AMDTeeRegistry",
+        &config.amd_contract_class_path,
+    )
+    .await?;
+    let katana_class_hash =
+        declare_with_wait(&provider, &account, "KatanaTee", &config.katana_contract_class_path)
+            .await?;
+    let storage_commitment_class_hash = declare_with_wait(
+        &provider,
+        &account,
+        "StorageCommitment",
+        &config.storage_commitment_contract_class_path,
+    )
+    .await?;
 
     info!(
-        "Declared contracts: AMDTeeRegistry {:?}, KatanaTee {:?}, StorageCommitment {:?}",
-        amd_class_hash, katana_class_hash, storage_commitment_class_hash
+        amd_tee_registry = %format!("{:#x}", amd_class_hash),
+        katana_tee = %format!("{:#x}", katana_class_hash),
+        storage_commitment = %format!("{:#x}", storage_commitment_class_hash),
+        "Declared contract classes"
     );
-
-    let salt = if let Some(ref salt_hex) = args.salt {
-        Felt::from_hex(salt_hex).context("invalid salt hex format")?
-    } else {
-        let random_bytes: [u8; 32] = random();
-        let hex_string = format!(
-            "0x{}",
-            random_bytes
-                .iter()
-                .map(|b| format!("{:02x}", b))
-                .collect::<String>()
-        );
-        Felt::from_hex_unchecked(&hex_string)
-    };
     info!("Using salt for deployment: {:#064x}", salt);
 
-    let (sp1_low, sp1_high) = resolve_sp1_program_id(&args)?;
+    let (sp1_low, sp1_high) = resolve_sp1_program_id(&config)?;
     info!(
         "SP1 program ID: low {:#064x}, high {:#064x}",
         sp1_low, sp1_high
     );
 
-    // AMDTeeRegistry constructor calldata:
-    // verifier_class_hash, sp1_program_id (low, high), max_time_diff,
-    // trusted_certs (len 0), processor_models (len 2: Milan=0, Genoa=1), root_certs (len 2: milan u256, genoa u256)
     let amd_calldata = vec![
-        Felt::from_hex(GARAGA_CLASS_HASH).unwrap(),
+        Felt::from_hex(GARAGA_CLASS_HASH).expect("valid constant"),
         sp1_low,
         sp1_high,
         Felt::from(MAX_TIME_DIFF),
-        Felt::ZERO,       // trusted_certs len
-        Felt::from(2u64), // processor_models len
-        Felt::ZERO,       // Milan
-        Felt::ONE,        // Genoa
-        Felt::from(2u64), // root_certs len
-        Felt::from_dec_str(MILAN_LOW).unwrap(),
-        Felt::from_dec_str(MILAN_HIGH).unwrap(),
-        Felt::from_dec_str(GENOA_LOW).unwrap(),
-        Felt::from_dec_str(GENOA_HIGH).unwrap(),
+        Felt::ZERO,
+        Felt::from(2u64),
+        Felt::ZERO,
+        Felt::ONE,
+        Felt::from(2u64),
+        Felt::from_dec_str(MILAN_LOW).expect("valid constant"),
+        Felt::from_dec_str(MILAN_HIGH).expect("valid constant"),
+        Felt::from_dec_str(GENOA_LOW).expect("valid constant"),
+        Felt::from_dec_str(GENOA_HIGH).expect("valid constant"),
     ];
 
-    let (maybe_tx, amd_address) =
-        deploy::deploy(&account, amd_class_hash, amd_calldata, Some(salt), false)
-            .await
-            .map_err(|e| anyhow::anyhow!("deploy AMDTeeRegistry: {}", e))?;
-
-    info!(
-        "Deployed AMDTeeRegistry: {:?}, tx_hash: {:?}",
-        amd_address, maybe_tx
-    );
-
-    if let Some(ref tx_result) = maybe_tx {
-        info!("Waiting for AMDTeeRegistry deployment to be confirmed...");
-        let _ = watch_tx(&provider, tx_result.transaction_hash, POLLING_INTERVAL).await;
-    }
-
-    // Deploy StorageCommitment (constructor takes deployer address for access control)
-    let storage_commitment_calldata = vec![address];
-
-    let (maybe_tx, storage_commitment_address) = deploy::deploy(
+    let (amd_address, _) = deploy_with_wait(
+        &provider,
         &account,
+        "AMDTeeRegistry",
+        amd_class_hash,
+        amd_calldata,
+        Some(salt),
+    )
+    .await?;
+
+    let storage_commitment_calldata = vec![address];
+    let (storage_commitment_address, _) = deploy_with_wait(
+        &provider,
+        &account,
+        "StorageCommitment",
         storage_commitment_class_hash,
         storage_commitment_calldata,
         Some(salt),
-        false,
     )
-    .await
-    .map_err(|e| anyhow::anyhow!("deploy StorageCommitment: {}", e))?;
+    .await?;
 
-    info!(
-        "Deployed StorageCommitment: {:?}, tx_hash: {:?}",
-        storage_commitment_address, maybe_tx
-    );
-
-    if let Some(ref tx_result) = maybe_tx {
-        info!("Waiting for StorageCommitment deployment to be confirmed...");
-        let _ = watch_tx(&provider, tx_result.transaction_hash, POLLING_INTERVAL).await;
-    }
-
-    // KatanaTee constructor:
-    // registry_address, storage_commitment_registry, measurement (low, mid, high)
     let katana_calldata = vec![
         amd_address,
         storage_commitment_address,
-        Felt::from_hex(MEASUREMENT_LOW).unwrap(),
-        Felt::from_hex(MEASUREMENT_MID).unwrap(),
-        Felt::from_hex(MEASUREMENT_HIGH).unwrap(),
+        Felt::from_hex(MEASUREMENT_LOW).expect("valid constant"),
+        Felt::from_hex(MEASUREMENT_MID).expect("valid constant"),
+        Felt::from_hex(MEASUREMENT_HIGH).expect("valid constant"),
     ];
 
-    let (maybe_tx, katana_address) = deploy::deploy(
+    let (katana_address, deployment_block) = deploy_with_wait(
+        &provider,
         &account,
+        "KatanaTee",
         katana_class_hash,
         katana_calldata,
         Some(salt),
-        false,
     )
-    .await
-    .map_err(|e| anyhow::anyhow!("deploy KatanaTee: {}", e))?;
+    .await?;
 
-    info!(
-        "Deployed KatanaTee: {:?}, tx_hash: {:?}",
-        katana_address, maybe_tx
-    );
-
-    let deployment_block = if let Some(tx_result) = maybe_tx {
-        info!("Waiting for KatanaTee deployment to be confirmed...");
-        let receipt = watch_tx(&provider, tx_result.transaction_hash, POLLING_INTERVAL)
-            .await
-            .map_err(|e| anyhow::anyhow!("wait for KatanaTee deployment: {}", e))?;
-        let block_number = receipt.block.block_number();
-        info!("KatanaTee deployed at block: {}", block_number);
-        Some(block_number)
-    } else {
-        info!("KatanaTee was already deployed, deployment block unknown");
-        None
-    };
-
-    // Authorize KatanaTee as the only caller allowed to register commitments
-    // on StorageCommitment. This must happen after both contracts are deployed.
-    info!(
-        "Setting KatanaTee ({:#064x}) as authorized caller on StorageCommitment ({:#064x})...",
-        katana_address, storage_commitment_address
-    );
-    let set_authorized_tx = account
-        .execute_v3(vec![Call {
-            to: storage_commitment_address,
-            selector: get_selector_from_name("set_authorized_caller")
-                .expect("valid ASCII selector"),
-            calldata: vec![katana_address],
-        }])
-        .send()
-        .await
-        .map_err(|e| anyhow::anyhow!("set_authorized_caller on StorageCommitment: {}", e))?;
-
-    info!("Waiting for set_authorized_caller tx to be confirmed...");
-    let _ = watch_tx(
-        &provider,
-        set_authorized_tx.transaction_hash,
-        POLLING_INTERVAL,
-    )
-    .await;
-    info!("StorageCommitment authorized caller set to KatanaTee");
+    set_authorized_caller(&provider, &account, storage_commitment_address, katana_address).await?;
 
     let state = DeploymentState {
         deployment_block,
@@ -299,7 +278,8 @@ pub async fn run_init(args: InitArgs) -> Result<()> {
 
     state
         .save()
-        .map_err(|e| anyhow::anyhow!("save deployment state: {}", e))?;
+        .map_err(InitError::StateSave)?;
+
     info!("Deployment state saved to {}", crate::state::STATE_FILE);
     info!("  - AMDTeeRegistry: {:#064x}", amd_address);
     info!(
@@ -310,60 +290,188 @@ pub async fn run_init(args: InitArgs) -> Result<()> {
     if let Some(block) = deployment_block {
         info!("  - Deployment block: {}", block);
     }
+
+    Ok(InitOutcome {
+        deployment_block,
+        amd_tee_registry_address: format!("{:#064x}", amd_address),
+        katana_tee_address: format!("{:#064x}", katana_address),
+        storage_commitment_address: format!("{:#064x}", storage_commitment_address),
+    })
+}
+
+async fn declare_with_wait(
+    provider: &StarknetProvider,
+    account: &StarknetAccount,
+    label: &'static str,
+    class_path: &Path,
+) -> Result<Felt, InitError> {
+    let (maybe_tx, class_hash) =
+        declare_contract(account, class_path.to_string_lossy().as_ref()).await?;
+    if let Some(tx) = maybe_tx {
+        info!("Waiting for {label} declaration...");
+        let _ = watch_tx(provider, tx.transaction_hash, POLLING_INTERVAL).await?;
+    } else {
+        info!("{label} was already declared");
+    }
+    Ok(class_hash)
+}
+
+async fn deploy_with_wait(
+    provider: &StarknetProvider,
+    account: &StarknetAccount,
+    label: &'static str,
+    class_hash: Felt,
+    constructor_calldata: Vec<Felt>,
+    salt: Option<Felt>,
+) -> Result<(Felt, Option<u64>), InitError> {
+    let (maybe_tx, address) = deploy::deploy(account, class_hash, constructor_calldata, salt, false).await?;
+
+    info!("{label} address: {:#064x}", address);
+
+    let deployment_block = if let Some(tx_result) = maybe_tx {
+        info!(
+            tx_hash = %format!("{:#x}", tx_result.transaction_hash),
+            "Waiting for {label} deployment..."
+        );
+        let receipt = watch_tx(provider, tx_result.transaction_hash, POLLING_INTERVAL).await?;
+        let block_number = receipt.block.block_number();
+        info!("{label} deployed at block: {}", block_number);
+        Some(block_number)
+    } else {
+        info!("{label} was already deployed, deployment block unknown");
+        None
+    };
+
+    Ok((address, deployment_block))
+}
+
+async fn set_authorized_caller(
+    provider: &StarknetProvider,
+    account: &StarknetAccount,
+    storage_commitment_address: Felt,
+    katana_address: Felt,
+) -> Result<(), InitError> {
+    let selector =
+        get_selector_from_name("set_authorized_caller").map_err(|e| InitError::Call(Box::new(e)))?;
+
+    info!(
+        "Setting KatanaTee ({:#064x}) as authorized caller on StorageCommitment ({:#064x})...",
+        katana_address, storage_commitment_address
+    );
+
+    let tx = account
+        .execute_v3(vec![Call {
+            to: storage_commitment_address,
+            selector,
+            calldata: vec![katana_address],
+        }])
+        .send()
+        .await
+        .map_err(|e| InitError::Call(Box::new(e)))?;
+
+    info!(
+        tx_hash = %format!("{:#x}", tx.transaction_hash),
+        "Waiting for set_authorized_caller confirmation..."
+    );
+    let _ = watch_tx(provider, tx.transaction_hash, POLLING_INTERVAL).await?;
+    info!("StorageCommitment authorized caller set to KatanaTee");
     Ok(())
 }
 
+fn resolve_salt(salt_hex: Option<&String>) -> Result<Option<Felt>, InitError> {
+    if let Some(value) = salt_hex {
+        return parse_hex_arg(value, "--salt")
+            .map(Some)
+            .map_err(InitError::from);
+    }
+
+    Ok(None)
+}
+
+fn random_salt() -> Felt {
+    let random_bytes: [u8; 32] = random();
+    let hex_string = format!(
+        "0x{}",
+        random_bytes
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect::<String>()
+    );
+    Felt::from_hex_unchecked(&hex_string)
+}
+
 /// Resolve SP1 program ID: from --sp1-program-id, or by running snp-attest-cli.
-/// Returns (low, high) as u256 for constructor calldata (low = last 16 bytes, high = first 16 bytes).
-fn resolve_sp1_program_id(args: &InitArgs) -> Result<(Felt, Felt)> {
-    if let Some(ref hex_id) = args.sp1_program_id {
-        info!("Using SP1 program ID from --sp1-program-id argument");
-        return parse_program_id_hex(hex_id).context("invalid --sp1-program-id hex");
+/// Returns `(low, high)` as u256 calldata limbs.
+fn resolve_sp1_program_id(config: &InitConfig) -> Result<(Felt, Felt), InitError> {
+    if let Some(ref hex_id) = config.sp1_program_id {
+        info!("Using SP1 program ID from --sp1-program-id");
+        return parse_program_id_hex(hex_id);
     }
-    if args.no_fetch_sp1_program_id {
-        anyhow::bail!(
-            "--no-fetch-sp1-program-id requires --sp1-program-id (no fallback is allowed)"
-        );
+
+    if config.no_fetch_sp1_program_id {
+        return Err(InitError::InvalidArgument {
+            field: "--no-fetch-sp1-program-id",
+            message: "requires --sp1-program-id because no fallback is allowed".to_string(),
+        });
     }
-    let (low, high) = fetch_sp1_program_id_from_cli(args.sdk_path.as_deref())
-        .context("failed to fetch SP1 program ID from snp-attest-cli; pass --sp1-program-id to override")?;
+
+    let (low, high) =
+        fetch_sp1_program_id_from_cli(config.sdk_path.as_deref(), !config.reuse_existing_sp1_elf)?;
     info!("Using SP1 program ID fetched from snp-attest-cli");
     Ok((low, high))
 }
 
-/// Parse "0x" + 64 hex chars into (low, high) felt. Low = last 16 bytes, high = first 16 bytes.
-fn parse_program_id_hex(hex_id: &str) -> Result<(Felt, Felt)> {
-    let s = hex_id.strip_prefix("0x").unwrap_or(hex_id);
-    let s = s.trim();
-    anyhow::ensure!(
-        s.len() == 64 && s.chars().all(|c| c.is_ascii_hexdigit()),
-        "SP1 program ID must be 32 bytes (64 hex chars)"
-    );
+/// Parse `0x` + 64 hex chars into `(low, high)` Cairo `u256` limbs.
+fn parse_program_id_hex(hex_id: &str) -> Result<(Felt, Felt), InitError> {
+    let trimmed = hex_id.trim();
+    if trimmed.contains("...") {
+        return Err(InitError::InvalidArgument {
+            field: "--sp1-program-id",
+            message: format!(
+                "placeholder value '{}' cannot be used; expected 32-byte hex value",
+                trimmed
+            ),
+        });
+    }
+
+    let s = trimmed.strip_prefix("0x").unwrap_or(trimmed);
+    if s.len() != 64 || !s.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(InitError::InvalidArgument {
+            field: "--sp1-program-id",
+            message: "expected 32-byte hex value (64 hex chars, optional 0x prefix)"
+                .to_string(),
+        });
+    }
+
     let low_hex = format!("0x{}", &s[32..]);
     let high_hex = format!("0x{}", &s[..32]);
-    Ok((
-        Felt::from_hex(&low_hex).context("SP1 low")?,
-        Felt::from_hex(&high_hex).context("SP1 high")?,
-    ))
+    let low = Felt::from_hex(&low_hex).map_err(|e| InitError::InvalidArgument {
+        field: "--sp1-program-id",
+        message: format!("invalid low limb: {e}"),
+    })?;
+    let high = Felt::from_hex(&high_hex).map_err(|e| InitError::InvalidArgument {
+        field: "--sp1-program-id",
+        message: format!("invalid high limb: {e}"),
+    })?;
+
+    Ok((low, high))
 }
 
-/// Run `cargo run -p snp-attest-cli --release -- program-id --sp1` in SDK dir and parse onchain representation.
-fn fetch_sp1_program_id_from_cli(sdk_path_opt: Option<&str>) -> Result<(Felt, Felt)> {
-    let sdk_path = match sdk_path_opt {
-        Some(p) => Path::new(p).to_path_buf(),
-        None => {
-            let cwd = std::env::current_dir().context("current_dir")?;
-            let default = cwd.join("crates").join("amd-sev-snp-attestation-sdk");
-            if default.exists() {
-                default
-            } else {
-                anyhow::bail!(
-                    "SDK path not found: {}. Set --sdk-path or run from repo root",
-                    default.display()
-                );
-            }
-        }
-    };
+/// Run `cargo run -p snp-attest-cli --release -- program-id --sp1` in SDK dir.
+fn fetch_sp1_program_id_from_cli(
+    sdk_path_opt: Option<&Path>,
+    force_rebuild: bool,
+) -> Result<(Felt, Felt), InitError> {
+    let sdk_path = sdk_path_opt
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| tee_repo_root().join(DEFAULT_SDK_PATH));
+
+    if force_rebuild {
+        rebuild_sp1_program_artifacts(&sdk_path)?;
+    } else {
+        info!("Reusing existing SP1 ELF/program artifacts without rebuild");
+    }
+
     let output = Command::new("cargo")
         .args([
             "run",
@@ -376,18 +484,172 @@ fn fetch_sp1_program_id_from_cli(sdk_path_opt: Option<&str>) -> Result<(Felt, Fe
         ])
         .current_dir(&sdk_path)
         .output()
-        .context("run snp-attest-cli")?;
-    anyhow::ensure!(
-        output.status.success(),
-        "snp-attest-cli failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
+        .map_err(|e| InitError::Sp1ProgramId(format!("failed to run snp-attest-cli: {e}")))?;
+
+    if !output.status.success() {
+        return Err(InitError::Sp1ProgramId(format!(
+            "snp-attest-cli failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
+    }
+
     let stdout = String::from_utf8_lossy(&output.stdout);
     let prefix = "ProgramID (Onchain Representation): ";
-    let line = stdout
-        .lines()
-        .find(|l| l.starts_with(prefix))
-        .context("snp-attest-cli output missing onchain program ID line")?;
-    let hex_id = line.strip_prefix(prefix).context("prefix")?.trim();
+    let line = stdout.lines().find(|line| line.starts_with(prefix)).ok_or_else(|| {
+        InitError::Sp1ProgramId(
+            "snp-attest-cli output missing 'ProgramID (Onchain Representation)' line"
+                .to_string(),
+        )
+    })?;
+    let hex_id = line.strip_prefix(prefix).unwrap_or("").trim();
     parse_program_id_hex(hex_id)
+}
+
+fn resolve_contract_class_paths(args: &InitArgs) -> Result<(PathBuf, PathBuf, PathBuf), InitError> {
+    let uses_default_artifacts = args.amd_contract_class_path == DEFAULT_AMD_CLASS_PATH
+        || args.katana_contract_class_path == DEFAULT_KATANA_CLASS_PATH
+        || args.storage_commitment_contract_class_path
+            == DEFAULT_STORAGE_COMMITMENT_CLASS_PATH;
+    let missing_artifact = try_resolve_existing_path(&args.amd_contract_class_path).is_none()
+        || try_resolve_existing_path(&args.katana_contract_class_path).is_none()
+        || try_resolve_existing_path(&args.storage_commitment_contract_class_path).is_none();
+
+    if uses_default_artifacts || missing_artifact {
+        build_contract_artifacts()?;
+    }
+
+    Ok((
+        resolve_existing_path(&args.amd_contract_class_path, "--amd-contract-class-path")?,
+        resolve_existing_path(
+            &args.katana_contract_class_path,
+            "--katana-contract-class-path",
+        )?,
+        resolve_existing_path(
+            &args.storage_commitment_contract_class_path,
+            "--storage-commitment-contract-class-path",
+        )?,
+    ))
+}
+
+fn try_resolve_existing_path(input: &str) -> Option<PathBuf> {
+    let direct = PathBuf::from(input);
+    if direct.exists() {
+        return Some(direct);
+    }
+
+    let repo_relative = tee_repo_root().join(input);
+    if repo_relative.exists() {
+        return Some(repo_relative);
+    }
+
+    None
+}
+
+fn resolve_existing_path(input: &str, field: &'static str) -> Result<PathBuf, InitError> {
+    try_resolve_existing_path(input).ok_or_else(|| InitError::InvalidArgument {
+        field,
+        message: format!(
+            "path '{}' was not found relative to the current directory or katana-tee repo root ({})",
+            input,
+            tee_repo_root().display()
+        ),
+    })
+}
+
+fn resolve_sdk_path(input: Option<&str>) -> Result<PathBuf, InitError> {
+    match input {
+        Some(path) => resolve_existing_path(path, "--sdk-path"),
+        None => {
+            let default = tee_repo_root().join(DEFAULT_SDK_PATH);
+            if default.exists() {
+                Ok(default)
+            } else {
+                Err(InitError::Sp1ProgramId(format!(
+                    "SDK path not found: {}. Pass --sdk-path explicitly",
+                    default.display()
+                )))
+            }
+        }
+    }
+}
+
+fn tee_repo_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(|p| p.parent())
+        .expect("tee_deploy crate should live under katana-tee/crates/tee_deploy")
+        .to_path_buf()
+}
+
+fn build_contract_artifacts() -> Result<(), InitError> {
+    let repo_root = tee_repo_root();
+    info!(
+        repo_root = %repo_root.display(),
+        "Building Cairo contract artifacts with scarb"
+    );
+
+    let output = Command::new("scarb")
+        .args(["build"])
+        .current_dir(&repo_root)
+        .output()
+        .map_err(|e| InitError::ContractBuild(format!("failed to run scarb build: {e}")))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        let details = if stderr.is_empty() { stdout } else { stderr };
+
+        return Err(InitError::ContractBuild(format!(
+            "scarb build failed from {}: {}",
+            repo_root.display(),
+            details
+        )));
+    }
+
+    Ok(())
+}
+
+fn rebuild_sp1_program_artifacts(sdk_path: &Path) -> Result<(), InitError> {
+    let elf_path = sdk_path
+        .join("crates")
+        .join("sp1-methods")
+        .join("elf")
+        .join("sp1-verifier-elf");
+
+    info!(
+        elf = %elf_path.display(),
+        "Forcing fresh SP1 ELF rebuild before fetching program ID"
+    );
+
+    if elf_path.exists() {
+        fs::remove_file(&elf_path).map_err(|e| {
+            InitError::Sp1ProgramId(format!(
+                "failed to remove stale SP1 ELF at {}: {e}",
+                elf_path.display()
+            ))
+        })?;
+    }
+
+    let clean_output = Command::new("cargo")
+        .args([
+            "clean",
+            "-p",
+            "sp1-methods",
+            "-p",
+            "amd-sev-snp-attestation-prover",
+            "-p",
+            "snp-attest-cli",
+        ])
+        .current_dir(sdk_path)
+        .output()
+        .map_err(|e| InitError::Sp1ProgramId(format!("failed to run cargo clean for SP1 crates: {e}")))?;
+
+    if !clean_output.status.success() {
+        return Err(InitError::Sp1ProgramId(format!(
+            "cargo clean failed: {}",
+            String::from_utf8_lossy(&clean_output.stderr).trim()
+        )));
+    }
+
+    Ok(())
 }

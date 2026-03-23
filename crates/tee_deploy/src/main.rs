@@ -1,10 +1,6 @@
 //! Declare and deploy AMDTeeRegistry + KatanaTee on Starknet.
 //!
-//! Build contracts first:
-//!   cd contracts/amd_tee_registry && scarb build
-//!   cd contracts/katana_tee && scarb build
-//!
-//! Then run from repo root:
+//! Run from repo root:
 //!   cargo run -p tee_deploy -- init --private-key 0x... --address 0x... --provider-url https://...
 
 use clap::Parser;
