@@ -27,7 +27,7 @@ pub async fn deploy(
 
     match contract_factory
         .deploy_v3(constructor_calldata, salt, unique)
-        .gas_estimate_multiplier(3.0)
+        .gas_estimate_multiplier(5.0)
         .send()
         .await
     {
