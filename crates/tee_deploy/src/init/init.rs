@@ -400,22 +400,51 @@ async fn set_authorized_caller(
 ///
 /// The measurement is a 48-byte (96 hex chars) AMD SEV-SNP launch digest.
 /// It is split into 3 × 16-byte limbs for Cairo's Bytes48 type.
+/// Auto-discovery path for .measurement.json (written by sharding-deploy build).
+const MEASUREMENT_JSON: &str = ".measurement.json";
+
 fn resolve_measurement(config: &InitConfig) -> Result<(Felt, Felt, Felt), InitError> {
     let hex = if let Some(ref m) = config.measurement {
+        info!("Using measurement from --measurement flag");
         m.clone()
     } else if let Some(ref path) = config.measurement_file {
+        info!("Using measurement from --measurement-file: {path}");
         read_measurement_from_file(path)?
+    } else if let Ok(hex) = read_measurement_from_json(MEASUREMENT_JSON) {
+        info!("Using measurement from {MEASUREMENT_JSON}");
+        hex
     } else {
         return Err(InitError::InvalidArgument {
             field: "--measurement",
-            message: "TEE measurement is required. Pass --measurement <96-char-hex> or \
-                      --measurement-file <path> (e.g. output/qemu/measurement.txt from \
-                      sharding-deploy build)"
+            message: "TEE measurement is required. Pass --measurement <96-char-hex>, \
+                      --measurement-file <path>, or ensure .measurement.json exists \
+                      (written by sharding-deploy build)"
                 .to_string(),
         });
     };
 
     parse_measurement_hex(&hex)
+}
+
+/// Read launch_digest from .measurement.json (sharding-deploy build output).
+fn read_measurement_from_json(path: &str) -> Result<String, InitError> {
+    let content = fs::read_to_string(path).map_err(|e| InitError::InvalidArgument {
+        field: "--measurement",
+        message: format!("cannot read '{}': {}", path, e),
+    })?;
+    let json: serde_json::Value = serde_json::from_str(&content).map_err(|e| {
+        InitError::InvalidArgument {
+            field: "--measurement",
+            message: format!("invalid JSON in '{}': {}", path, e),
+        }
+    })?;
+    json["launch_digest"]
+        .as_str()
+        .map(|s| s.to_string())
+        .ok_or_else(|| InitError::InvalidArgument {
+            field: "--measurement",
+            message: format!("no 'launch_digest' field in '{}'", path),
+        })
 }
 
 /// Parse 96-char hex (48 bytes) into 3 Cairo felt252 limbs (low, mid, high).
