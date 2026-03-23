@@ -12,17 +12,18 @@ fn test_decode_verifier_journal_minimal() {
     // ABI offset pointer (required by decode_verifier_journal)
     words.append(u256_from_u128(0x20)); // offset = 32 bytes
 
-    // Head (10 words)
+    // Head (11 words)
     words.append(u256_from_u128(0)); // slot 0: result = Success
     words.append(u256_from_u128(42)); // slot 1: timestamp
     words.append(u256_from_u128(1)); // slot 2: processorModel
-    words.append(u256_from_u128(320)); // slot 3: rawReport offset (10*32 = 320)
-    words.append(u256_from_u128(1536)); // slot 4: certs offset (320 + 1216)
-    words.append(u256_from_u128(1600)); // slot 5: certSerials offset (1536 + 64)
+    words.append(u256_from_u128(352)); // slot 3: rawReport offset (11*32 = 352)
+    words.append(u256_from_u128(1568)); // slot 4: certs offset (352 + 1216)
+    words.append(u256_from_u128(1632)); // slot 5: certSerials offset (1568 + 64)
     words.append(u256_from_u128(2)); // slot 6: trustedCertsPrefixLen
     words.append(u256_from_u128(0)); // slot 7: storageCommitment
-    words.append(u256_from_u128(100)); // slot 8: forkBlockNumber
-    words.append(u256_from_u128(200)); // slot 9: endBlockNumber
+    words.append(u256_from_u128(0x1234)); // slot 8: eventsCommitment
+    words.append(u256_from_u128(100)); // slot 9: forkBlockNumber
+    words.append(u256_from_u128(200)); // slot 10: endBlockNumber
 
     // rawReport block
     words.append(u256_from_u128(1184)); // length in bytes
@@ -52,6 +53,7 @@ fn test_decode_verifier_journal_minimal() {
     assert(journal.cert_serials.len() == 1, 'Wrong serial count');
     assert(*journal.cert_serials.at(0) == 0xdead, 'Wrong serial value');
     assert(journal.storage_commitment == 0, 'Wrong storage commitment');
+    assert(journal.events_commitment == 0x1234, 'Wrong events commitment');
     assert(journal.fork_block_number == 100, 'Wrong fork block number');
     assert(journal.end_block_number == 200, 'Wrong end block number');
 }

@@ -43,6 +43,11 @@ fn assert_journal_eq(
         assert(*actual.cert_serials.at(k) == *expected.cert_serials.at(k), 'serials elem mismatch');
         k += 1;
     };
+
+    assert(actual.storage_commitment == expected.storage_commitment, 'storage commitment mismatch');
+    assert(actual.events_commitment == expected.events_commitment, 'events commitment mismatch');
+    assert(actual.fork_block_number == expected.fork_block_number, 'fork block mismatch');
+    assert(actual.end_block_number == expected.end_block_number, 'end block mismatch');
 }
 
 #[test]

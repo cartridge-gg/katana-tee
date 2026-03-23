@@ -227,7 +227,9 @@ fn test_verify_and_update_state() {
     // events_commitment=0 for legacy fixtures (will fail with 4-field Poseidon mismatch
     // but test is #[ignore] and needs new fixtures anyway)
     let (result, end_block_number) = katana_dispatcher
-        .verify_and_update_state(sp1_proof, state_root, block_hash, block_number, 0, 0)
+        .verify_and_update_state(
+            sp1_proof, state_root, block_hash, block_number, 0, 0, u256 { low: 0, high: 0 },
+        )
         .unwrap();
 
     // Get events AFTER the action

@@ -2,6 +2,10 @@ use core::integer::{u128_byte_reverse, u512};
 use core::poseidon::poseidon_hash_span;
 use katana_tee::katana_report_utils::verify_katana_report_data;
 
+fn zero_u256() -> u256 {
+    u256 { low: 0, high: 0 }
+}
+
 #[test]
 fn test_verify_katana_report_data_layout() {
     let state_root: felt252 = 1;
@@ -22,7 +26,7 @@ fn test_verify_katana_report_data_layout() {
 
     assert(
         verify_katana_report_data(
-            report_data, state_root, block_hash, fork_block_number, events_commitment,
+            report_data, state_root, block_hash, fork_block_number, events_commitment, zero_u256(),
         ),
         'Verification should succeed',
     );
@@ -48,7 +52,7 @@ fn test_verify_katana_report_data_with_fork_block() {
 
     assert(
         verify_katana_report_data(
-            report_data, state_root, block_hash, fork_block_number, events_commitment,
+            report_data, state_root, block_hash, fork_block_number, events_commitment, zero_u256(),
         ),
         'Verification should succeed',
     );

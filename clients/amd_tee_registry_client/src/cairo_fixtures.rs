@@ -29,6 +29,7 @@ pub struct DecodedJournal {
     pub certs: Vec<[u8; 32]>,
     pub cert_serials: Vec<[u8; 20]>,
     pub trusted_certs_prefix_len: u8,
+    pub events_commitment: [u8; 32],
 }
 
 /// Parse the journal from a proof file and decode it into a VerifierJournal structure.
@@ -55,6 +56,13 @@ pub fn decode_journal_from_proof(proof: &OnchainProof) -> Result<DecodedJournal,
     let certs_offset = u64::from_be_bytes(data[152..160].try_into().unwrap()) as usize; // Word 4
     let cert_serials_offset = u64::from_be_bytes(data[184..192].try_into().unwrap()) as usize; // Word 5
     let trusted_certs_prefix_len = data[223]; // Last byte of word 6
+    let events_commitment = if raw_report_offset >= 352 {
+        let mut value = [0u8; 32];
+        value.copy_from_slice(safe_slice(data, 256, 288)?);
+        value
+    } else {
+        [0u8; 32]
+    };
 
     // Parse raw_report (dynamic bytes)
     let raw_report_len_slice = safe_slice(data, raw_report_offset + 24, raw_report_offset + 32)?;
@@ -107,6 +115,7 @@ pub fn decode_journal_from_proof(proof: &OnchainProof) -> Result<DecodedJournal,
         certs,
         cert_serials,
         trusted_certs_prefix_len,
+        events_commitment,
     })
 }
 
@@ -216,6 +225,15 @@ fn generate_block_fixture(block_num: usize, proof: &OnchainProof) -> Result<Stri
     output.push_str("        certs,\n");
     output.push_str("        cert_serials,\n");
     output.push_str("        trusted_certs_prefix_len,\n");
+    let events_high = u128::from_be_bytes(journal.events_commitment[0..16].try_into().unwrap());
+    let events_low = u128::from_be_bytes(journal.events_commitment[16..32].try_into().unwrap());
+    output.push_str("        storage_commitment: 0,\n");
+    output.push_str(&format!(
+        "        events_commitment: u256 {{ low: 0x{:032x}, high: 0x{:032x} }}.try_into().unwrap(),\n",
+        events_low, events_high
+    ));
+    output.push_str("        fork_block_number: 0,\n");
+    output.push_str("        end_block_number: 0,\n");
     output.push_str("    }\n");
     output.push_str("}\n");
 

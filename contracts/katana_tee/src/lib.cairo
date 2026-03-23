@@ -111,9 +111,18 @@ pub mod KatanaTee {
                     let measurement = raw_report.measurement();
                     assert(measurement == self.get_measurement(), 'Measurement mismatch');
 
+                    let proven_events_commitment = journal.events_commitment;
+                    assert(proven_events_commitment == events_commitment, 'Event commitment mismatch');
+                    assert(journal.fork_block_number == fork_block_number, 'Fork block mismatch');
+
                     let report_data = raw_report.report_data();
                     verify_katana_report_data(
-                        report_data, state_root, block_hash, fork_block_number, events_commitment, args_hash,
+                        report_data,
+                        state_root,
+                        block_hash,
+                        journal.fork_block_number,
+                        proven_events_commitment,
+                        args_hash,
                     );
 
                     self.latest_state_root.write(state_root);

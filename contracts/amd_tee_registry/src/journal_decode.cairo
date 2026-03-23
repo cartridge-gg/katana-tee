@@ -41,7 +41,7 @@ pub fn decode_verifier_journal(public_inputs: Span<u256>) -> VerifierJournal {
 
 fn decode_verifier_journal_from_u32(words: Span<u32>) -> VerifierJournal {
     assert(words.len() % 8 == 0, 'Invalid ABI length');
-    assert(words.len() >= 10 * 8, 'ABI too short');
+    assert(words.len() >= 7 * 8, 'ABI too short');
 
     let result_word = read_word_u32(words, 0);
     let timestamp_word = read_word_u32(words, 1);
@@ -50,7 +50,6 @@ fn decode_verifier_journal_from_u32(words: Span<u32>) -> VerifierJournal {
     let certs_offset_word = read_word_u32(words, 4);
     let cert_serials_offset_word = read_word_u32(words, 5);
     let trusted_prefix_word = read_word_u32(words, 6);
-    let storage_commitment = word_to_u256(read_word_u32(words, 7));
 
     let result = verification_result_from_u8(word_to_u8(result_word));
     let timestamp = word_to_u64(timestamp_word);
@@ -60,6 +59,31 @@ fn decode_verifier_journal_from_u32(words: Span<u32>) -> VerifierJournal {
     let raw_report_offset_bytes = word_to_u64(raw_report_offset_word);
     let certs_offset_bytes = word_to_u64(certs_offset_word);
     let cert_serials_offset_bytes = word_to_u64(cert_serials_offset_word);
+    let (storage_commitment, events_commitment, fork_block_number, end_block_number) = match raw_report_offset_bytes {
+        // Legacy 7-slot head used by older fixture proofs.
+        224 => (u256 { low: 0, high: 0 }, 0, 0, 0),
+        // Current 10-slot head: storageCommitment + forkBlockNumber + endBlockNumber.
+        320 => {
+            assert(words.len() >= 10 * 8, 'ABI too short');
+            (
+                word_to_u256(read_word_u32(words, 7)),
+                0,
+                word_to_u64(read_word_u32(words, 8)),
+                word_to_u64(read_word_u32(words, 9)),
+            )
+        },
+        // New 11-slot head: storageCommitment + eventsCommitment + forkBlockNumber + endBlockNumber.
+        352 => {
+            assert(words.len() >= 11 * 8, 'ABI too short');
+            (
+                word_to_u256(read_word_u32(words, 7)),
+                u256_to_felt(word_to_u256(read_word_u32(words, 8))),
+                word_to_u64(read_word_u32(words, 9)),
+                word_to_u64(read_word_u32(words, 10)),
+            )
+        },
+        _ => panic!("Unsupported journal layout"),
+    };
 
     let raw_report_offset_words: usize = (raw_report_offset_bytes / 32).try_into().unwrap();
     let certs_offset_words: usize = (certs_offset_bytes / 32).try_into().unwrap();
@@ -99,9 +123,6 @@ fn decode_verifier_journal_from_u32(words: Span<u32>) -> VerifierJournal {
         k += 1;
     }
 
-    let fork_block_number = word_to_u64(read_word_u32(words, 8));
-    let end_block_number = word_to_u64(read_word_u32(words, 9));
-
     VerifierJournal {
         result,
         timestamp,
@@ -111,6 +132,7 @@ fn decode_verifier_journal_from_u32(words: Span<u32>) -> VerifierJournal {
         cert_serials,
         trusted_certs_prefix_len,
         storage_commitment: u256_to_felt(storage_commitment),
+        events_commitment,
         fork_block_number,
         end_block_number,
     }
