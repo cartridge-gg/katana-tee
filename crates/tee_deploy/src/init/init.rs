@@ -405,13 +405,10 @@ const MEASUREMENT_JSON: &str = ".measurement.json";
 
 fn resolve_measurement(config: &InitConfig) -> Result<(Felt, Felt, Felt), InitError> {
     let hex = if let Some(ref m) = config.measurement {
-        info!("Using measurement from --measurement flag");
         m.clone()
     } else if let Some(ref path) = config.measurement_file {
-        info!("Using measurement from --measurement-file: {path}");
         read_measurement_from_file(path)?
     } else if let Ok(hex) = read_measurement_from_json(MEASUREMENT_JSON) {
-        info!("Using measurement from {MEASUREMENT_JSON}");
         hex
     } else {
         return Err(InitError::InvalidArgument {
