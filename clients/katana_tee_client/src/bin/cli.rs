@@ -155,13 +155,13 @@ enum Commands {
         #[arg(long)]
         katana_tee: String,
 
-        /// Contract that exposes request-time shard attestation config lookup.
-        #[arg(long)]
-        attestation_config_contract: Option<String>,
+        /// Fork provider URL for on-chain args-hash recomputation.
+        #[arg(long, env = "FORK_PROVIDER_URL")]
+        fork_provider_url: Option<String>,
 
-        /// Shard ID whose request-time fork block should be enforced on-chain.
+        /// Fork block number for on-chain args-hash recomputation.
         #[arg(long)]
-        shard_id: Option<String>,
+        fork_block_number: Option<u64>,
 
         /// AMD TEE registry contract address (hex felt)
         #[arg(long, required = true)]
@@ -343,8 +343,8 @@ async fn main() -> anyhow::Result<()> {
             json,
             starknet_rpc,
             katana_tee,
-            attestation_config_contract,
-            shard_id,
+            fork_provider_url,
+            fork_block_number,
             registry,
             prover,
             sp1_private_key,
@@ -365,8 +365,8 @@ async fn main() -> anyhow::Result<()> {
                 json,
                 starknet_rpc,
                 &katana_tee,
-                attestation_config_contract,
-                shard_id,
+                fork_provider_url,
+                fork_block_number,
                 &registry,
                 &prover,
                 sp1_private_key,
@@ -606,8 +606,8 @@ async fn cmd_pipeline(
     json: Option<PathBuf>,
     starknet_rpc: Option<String>,
     katana_tee: &str,
-    attestation_config_contract: Option<String>,
-    shard_id: Option<String>,
+    fork_provider_url: Option<String>,
+    fork_block_number: Option<u64>,
     registry: &str,
     prover: &str,
     sp1_private_key: Option<String>,
@@ -704,11 +704,12 @@ async fn cmd_pipeline(
         return Ok(());
     }
 
-    let attestation_config_contract = attestation_config_contract.ok_or_else(|| {
-        anyhow::anyhow!("--attestation-config-contract is required unless --dry-run")
+    let fork_provider_url = fork_provider_url.ok_or_else(|| {
+        anyhow::anyhow!("--fork-provider-url is required unless --dry-run")
     })?;
-    let shard_id =
-        shard_id.ok_or_else(|| anyhow::anyhow!("--shard-id is required unless --dry-run"))?;
+    let fork_block_number = fork_block_number.ok_or_else(|| {
+        anyhow::anyhow!("--fork-block-number is required unless --dry-run")
+    })?;
 
     let account_address = account_address.ok_or_else(|| {
         anyhow::anyhow!(
@@ -736,8 +737,6 @@ async fn cmd_pipeline(
     .await?;
 
     let sp1_proof = calldata.to_felts()?;
-    let attestation_config_contract = felt_from_hex(&attestation_config_contract)?;
-    let shard_id = felt_from_hex(&shard_id)?;
 
     println!("📤 Submitting verify_and_update_state...");
     let tx_hash = katana_client
@@ -747,8 +746,8 @@ async fn cmd_pipeline(
             state_root,
             block_hash,
             block_number,
-            attestation_config_contract,
-            shard_id,
+            &fork_provider_url,
+            fork_block_number,
         )
         .await?;
 

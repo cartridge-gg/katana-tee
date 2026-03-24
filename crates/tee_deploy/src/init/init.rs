@@ -53,7 +53,6 @@ pub struct InitConfig {
     pub reuse_existing_sp1_elf: bool,
     pub measurement: Option<String>,
     pub measurement_file: Option<String>,
-    pub fork_provider_url: String,
 }
 
 #[derive(Debug, Clone)]
@@ -131,11 +130,6 @@ pub struct InitArgs {
     #[arg(long)]
     pub measurement_file: Option<String>,
 
-    /// Fork provider URL used by Katana in production.
-    /// Stored in KatanaTee and combined on-chain with the shard's request-time
-    /// fork block number to recompute the expected attested args hash.
-    #[arg(long, env = "FORK_PROVIDER_URL")]
-    pub fork_provider_url: String,
 }
 
 impl InitArgs {
@@ -152,13 +146,6 @@ impl InitArgs {
             return Err(InitError::InvalidArgument {
                 field: "--no-fetch-sp1-program-id",
                 message: "requires --sp1-program-id because no fallback is allowed".to_string(),
-            });
-        }
-
-        if self.fork_provider_url.trim().is_empty() {
-            return Err(InitError::InvalidArgument {
-                field: "--fork-provider-url",
-                message: "must not be empty".to_string(),
             });
         }
 
@@ -187,7 +174,6 @@ impl InitArgs {
             reuse_existing_sp1_elf: self.reuse_existing_sp1_elf,
             measurement: self.measurement,
             measurement_file: self.measurement_file,
-            fork_provider_url: self.fork_provider_url,
         })
     }
 }
@@ -286,21 +272,13 @@ pub async fn run_init_config(config: InitConfig) -> Result<InitOutcome, InitErro
         "Measurement: low={:#x}, mid={:#x}, high={:#x}",
         meas_low, meas_mid, meas_high
     );
-    info!("Fork provider URL: {}", config.fork_provider_url);
-
-    let mut katana_calldata = vec![
+    let katana_calldata = vec![
         amd_address,
         storage_commitment_address,
         meas_low,
         meas_mid,
         meas_high,
     ];
-    ByteArray::from(config.fork_provider_url.as_str())
-        .encode(&mut katana_calldata)
-        .map_err(|e| InitError::InvalidArgument {
-            field: "--fork-provider-url",
-            message: format!("failed to encode constructor ByteArray: {e}"),
-        })?;
 
     let (katana_address, deployment_block) = deploy_with_wait(
         &provider,

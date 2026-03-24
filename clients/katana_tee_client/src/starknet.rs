@@ -116,6 +116,10 @@ impl KatanaTeeStarknetClient {
 
     /// Invoke `verify_and_update_state` on the `katana_tee` contract.
     ///
+    /// `fork_provider_url` and `fork_block_number` are passed in calldata so the
+    /// contract can recompute the expected args hash on-chain. The caller cannot
+    /// lie because the result must match `report_data[32..64]` attested by TEE.
+    ///
     /// Returns the transaction hash.
     pub async fn verify_and_update_state(
         &self,
@@ -124,8 +128,8 @@ impl KatanaTeeStarknetClient {
         state_root: Felt,
         block_hash: Felt,
         block_number: u64,
-        attestation_config_contract: Felt,
-        shard_id: Felt,
+        fork_provider_url: &str,
+        fork_block_number: u64,
     ) -> Result<Felt, Error> {
         let selector = get_selector_from_name("verify_and_update_state").map_err(|e| {
             Error::Registry(amd_tee_registry_client::Error::Starknet(format!(
@@ -133,14 +137,34 @@ impl KatanaTeeStarknetClient {
             )))
         })?;
 
-        let mut calldata: Vec<Felt> = Vec::with_capacity(sp1_proof.len() + 6);
+        // Encode fork_provider_url as Cairo ByteArray:
+        // [num_full_words, ...full_words (31-byte chunks as felt), pending_word, pending_len]
+        let url_bytes = fork_provider_url.as_bytes();
+        let full_chunks = url_bytes.len() / 31;
+        let pending_len = url_bytes.len() % 31;
+
+        let mut calldata: Vec<Felt> = Vec::with_capacity(sp1_proof.len() + full_chunks + 8);
         calldata.push(Felt::from(sp1_proof.len() as u64));
         calldata.extend_from_slice(&sp1_proof);
         calldata.push(state_root);
         calldata.push(block_hash);
         calldata.push(Felt::from(block_number));
-        calldata.push(attestation_config_contract);
-        calldata.push(shard_id);
+
+        // ByteArray serialization
+        calldata.push(Felt::from(full_chunks as u64));
+        for i in 0..full_chunks {
+            let chunk = &url_bytes[i * 31..(i + 1) * 31];
+            calldata.push(Felt::from_bytes_be_slice(chunk));
+        }
+        if pending_len > 0 {
+            let pending = &url_bytes[full_chunks * 31..];
+            calldata.push(Felt::from_bytes_be_slice(pending));
+        } else {
+            calldata.push(Felt::ZERO);
+        }
+        calldata.push(Felt::from(pending_len as u64));
+
+        calldata.push(Felt::from(fork_block_number));
 
         let call = Call {
             to: self.contract_address,
