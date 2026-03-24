@@ -94,6 +94,10 @@ check_rpc() {
         -d '{"jsonrpc":"2.0","method":"starknet_chainId","params":[],"id":1}' 2>/dev/null | grep -q "result"
 }
 
+quote_request_body() {
+    printf '%s' '{"jsonrpc":"2.0","method":"tee_generateQuote","params":[0,0],"id":1}'
+}
+
 # Helper to check required config
 require_tee_host() {
     if [ -z "$TEE_HOST" ]; then
@@ -166,7 +170,7 @@ case "${1:-help}" in
         echo -n "TEE attestation: "
         if curl -s --max-time 10 "http://${TEE_HOST}:${RPC_PORT}" -X POST \
             -H 'Content-Type: application/json' \
-            -d '{"jsonrpc":"2.0","method":"tee_generateQuote","params":[],"id":1}' | grep -q "quote"; then
+            -d "$(quote_request_body)" | grep -q "quote"; then
             echo "available ✓"
         else
             echo "not available (non-SNP host?)"
@@ -245,7 +249,7 @@ case "${1:-help}" in
         echo -n "  TEE attestation: "
         if curl -s --max-time 5 "http://${TEE_HOST}:${RPC_PORT}" -X POST \
             -H 'Content-Type: application/json' \
-            -d '{"jsonrpc":"2.0","method":"tee_generateQuote","params":[],"id":1}' 2>/dev/null | grep -q "quote"; then
+            -d "$(quote_request_body)" 2>/dev/null | grep -q "quote"; then
             echo "available ✓"
         else
             echo "not available ✗"
@@ -260,7 +264,7 @@ case "${1:-help}" in
 
         RESPONSE=$(curl -s --max-time 10 "$RPC_URL" -X POST \
             -H 'Content-Type: application/json' \
-            -d '{"jsonrpc":"2.0","method":"tee_generateQuote","params":[],"id":1}')
+            -d "$(quote_request_body)")
 
         if [ -z "$RESPONSE" ]; then
             echo "Error: No response from RPC (is TEE VM running?)"
@@ -319,7 +323,7 @@ case "${1:-help}" in
         # Fetch quote via RPC
         RESPONSE=$(curl -s --max-time 30 "$RPC_URL" -X POST \
             -H 'Content-Type: application/json' \
-            -d '{"jsonrpc":"2.0","method":"tee_generateQuote","params":[],"id":1}')
+            -d "$(quote_request_body)")
 
         QUOTE=$(echo "$RESPONSE" | jq -r '.result.quote // empty' 2>/dev/null)
         if [ -z "$QUOTE" ] || [ "$QUOTE" = "null" ]; then

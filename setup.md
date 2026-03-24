@@ -40,5 +40,5 @@ Required keys:
 ```bash
 curl -s "http://$TEE_HOST:$RPC_PORT" -X POST \
   -H 'Content-Type: application/json' \
-  -d '{"jsonrpc":"2.0","method":"tee_generateQuote","params":[],"id":1}'
+  -d '{"jsonrpc":"2.0","method":"tee_generateQuote","params":[0,0],"id":1}'
 ```
