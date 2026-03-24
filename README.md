@@ -125,13 +125,14 @@ Application-level contract that delegates proof verification to AMDTEERegistry a
 ```
 IKatanaTee
 ├── verify_sp1_proof(sp1_proof) -> Result<VerifierJournal, felt252>
-├── verify_and_update_state(sp1_proof, state_root, block_hash, block_number) -> Result<bool, felt252>
+├── verify_and_update_state(sp1_proof, state_root, block_hash, block_number, attestation_config_contract, shard_id) -> Result<bool, felt252>
 ├── get_registry_address() -> ContractAddress
 ├── get_latest_state() -> (block_number, state_root, block_hash)
-└── get_measurement() -> Bytes48
+├── get_measurement() -> Bytes48
+└── get_fork_provider_url() -> ByteArray
 ```
 
-Constructor parameters: `registry_address`, `measurement`.
+Constructor parameters: `registry_address`, `storage_commitment_registry`, `measurement`, `fork_provider_url`.
 
 ## CLI Reference
 
@@ -207,8 +208,14 @@ make devnet-mainnet
 Deploy contracts:
 
 ```bash
-sncast --account "$STARKNET_ACCOUNT" script run deployment --network devnet --package deployment --no-state-file
+cargo run -p tee_deploy -- init \
+  --private-key 0x<starknet_private_key> \
+  --address 0x<starknet_account_address> \
+  --provider-url http://localhost:5051 \
+  --fork-provider-url https://rpc.example
 ```
+
+The legacy `contracts/scripts` deployment helper still uses fixture-style placeholder values and is best kept for local experimentation only.
 
 Run the full pipeline against deployed contracts:
 
@@ -217,6 +224,8 @@ cargo run -p katana_tee_client --bin katana-tee -- pipeline \
   --rpc http://localhost:5050 \
   --registry 0x<amd_tee_registry_address> \
   --katana-tee 0x<katana_tee_address> \
+  --attestation-config-contract 0x<attestation_config_contract> \
+  --shard-id 0x<shard_id> \
   --account-address 0x<starknet_account_address> \
   --account-private-key 0x<starknet_private_key>
 ```

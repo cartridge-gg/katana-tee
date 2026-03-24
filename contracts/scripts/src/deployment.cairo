@@ -1,4 +1,5 @@
 use amd_tee_registry::tee_registry::AMDTEERegistry;
+use core::serde::Serde;
 use amd_tee_registry::tee_types::ProcessorType;
 use katana_tee::KatanaTee;
 use sncast_std::{DeclareResultTrait, FeeSettingsTrait, declare, deploy, get_nonce};
@@ -90,7 +91,11 @@ fn main() {
         .expect('Failed to load measurement.json');
 
     // Deploy KatanaTee with:
-    // registry_address, storage_commitment_registry, measurement (Bytes48: low, mid, high)
+    // registry_address, storage_commitment_registry, measurement (Bytes48: low, mid, high),
+    // fork_provider_url (ByteArray)
+    //
+    // NOTE: this script still uses fixture-style placeholder values for local/dev flows.
+    // For real deployments prefer `cargo run -p tee_deploy -- init --fork-provider-url ...`.
     let storage_commitment_registry: ContractAddress = 0.try_into().unwrap();
     let mut katana_tee_calldata: Array<felt252> = array![];
     Serde::serialize(@amd_tee_registry_address, ref katana_tee_calldata);
@@ -98,6 +103,9 @@ fn main() {
     katana_tee_calldata.append(measurement.low_bits);
     katana_tee_calldata.append(measurement.mid_bits);
     katana_tee_calldata.append(measurement.high_bits);
+    katana_tee_calldata.append(0);
+    katana_tee_calldata.append(0x68747470733a2f2f7270632e6578616d706c65);
+    katana_tee_calldata.append(19);
     let _katana_tee_address = declare_and_deploy_contract("KatanaTee", katana_tee_calldata);
 }
 

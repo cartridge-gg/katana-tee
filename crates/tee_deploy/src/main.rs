@@ -1,7 +1,7 @@
 //! Declare and deploy AMDTeeRegistry + KatanaTee on Starknet.
 //!
 //! Run from repo root:
-//!   cargo run -p tee_deploy -- init --private-key 0x... --address 0x... --provider-url https://...
+//!   cargo run -p tee_deploy -- init --private-key 0x... --address 0x... --provider-url https://... --fork-provider-url https://...
 
 use clap::Parser;
 use tee_deploy::init::{run_init, InitArgs};

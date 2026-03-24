@@ -13,13 +13,14 @@ use super::declare::declare_contract;
 use super::deploy;
 use super::error::InitError;
 use crate::helpers::{
-    POLLING_INTERVAL, StarknetAccount, StarknetProvider, parse_hex_arg, setup_provider_and_account,
-    validate_hex_arg, validate_optional_hex_arg, watch_tx,
+    parse_hex_arg, setup_provider_and_account, validate_hex_arg, validate_optional_hex_arg,
+    watch_tx, StarknetAccount, StarknetProvider, POLLING_INTERVAL,
 };
 use crate::state::DeploymentState;
 use clap::Args;
 use rand::random;
-use starknet_core::types::{Call, Felt};
+use starknet_core::codec::Encode;
+use starknet_core::types::{ByteArray, Call, Felt};
 use starknet_core::utils::get_selector_from_name;
 use starknet_rust::accounts::Account;
 use tracing::info;
@@ -30,7 +31,8 @@ const MILAN_LOW: &str = "326103188097639633505521426987620764621";
 const MILAN_HIGH: &str = "140650959549381881311165088169387222174";
 const GENOA_LOW: &str = "122279190577630630319986709203695547121";
 const GENOA_HIGH: &str = "101548849195620556729999786649524856654";
-const DEFAULT_AMD_CLASS_PATH: &str = "target/dev/amd_tee_registry_AMDTEERegistry.contract_class.json";
+const DEFAULT_AMD_CLASS_PATH: &str =
+    "target/dev/amd_tee_registry_AMDTEERegistry.contract_class.json";
 const DEFAULT_KATANA_CLASS_PATH: &str = "target/dev/katana_tee_KatanaTee.contract_class.json";
 const DEFAULT_STORAGE_COMMITMENT_CLASS_PATH: &str =
     "target/dev/storage_commitment_StorageCommitment.contract_class.json";
@@ -51,6 +53,7 @@ pub struct InitConfig {
     pub reuse_existing_sp1_elf: bool,
     pub measurement: Option<String>,
     pub measurement_file: Option<String>,
+    pub fork_provider_url: String,
 }
 
 #[derive(Debug, Clone)]
@@ -127,6 +130,12 @@ pub struct InitArgs {
     /// Reads LAUNCH_DIGEST=<hex> line from the file.
     #[arg(long)]
     pub measurement_file: Option<String>,
+
+    /// Fork provider URL used by Katana in production.
+    /// Stored in KatanaTee and combined on-chain with the shard's request-time
+    /// fork block number to recompute the expected attested args hash.
+    #[arg(long, env = "FORK_PROVIDER_URL")]
+    pub fork_provider_url: String,
 }
 
 impl InitArgs {
@@ -146,13 +155,23 @@ impl InitArgs {
             });
         }
 
+        if self.fork_provider_url.trim().is_empty() {
+            return Err(InitError::InvalidArgument {
+                field: "--fork-provider-url",
+                message: "must not be empty".to_string(),
+            });
+        }
+
         Ok(())
     }
 
     pub fn into_config(self) -> Result<InitConfig, InitError> {
         self.validate()?;
-        let (amd_contract_class_path, katana_contract_class_path, storage_commitment_contract_class_path) =
-            resolve_contract_class_paths(&self)?;
+        let (
+            amd_contract_class_path,
+            katana_contract_class_path,
+            storage_commitment_contract_class_path,
+        ) = resolve_contract_class_paths(&self)?;
 
         Ok(InitConfig {
             private_key: self.private_key,
@@ -168,6 +187,7 @@ impl InitArgs {
             reuse_existing_sp1_elf: self.reuse_existing_sp1_elf,
             measurement: self.measurement,
             measurement_file: self.measurement_file,
+            fork_provider_url: self.fork_provider_url,
         })
     }
 }
@@ -177,12 +197,9 @@ pub async fn run_init(args: InitArgs) -> Result<InitOutcome, InitError> {
 }
 
 pub async fn run_init_config(config: InitConfig) -> Result<InitOutcome, InitError> {
-    let (provider, mut account) = setup_provider_and_account(
-        &config.provider_url,
-        &config.private_key,
-        &config.address,
-    )
-    .await?;
+    let (provider, mut account) =
+        setup_provider_and_account(&config.provider_url, &config.private_key, &config.address)
+            .await?;
     // Use pre-confirmed block for nonce to avoid nonce mismatch after waiting for tx confirmation.
     account.set_block_id(starknet_core::types::BlockId::Tag(
         starknet_core::types::BlockTag::PreConfirmed,
@@ -198,9 +215,13 @@ pub async fn run_init_config(config: InitConfig) -> Result<InitOutcome, InitErro
         &config.amd_contract_class_path,
     )
     .await?;
-    let katana_class_hash =
-        declare_with_wait(&provider, &account, "KatanaTee", &config.katana_contract_class_path)
-            .await?;
+    let katana_class_hash = declare_with_wait(
+        &provider,
+        &account,
+        "KatanaTee",
+        &config.katana_contract_class_path,
+    )
+    .await?;
     let storage_commitment_class_hash = declare_with_wait(
         &provider,
         &account,
@@ -265,14 +286,21 @@ pub async fn run_init_config(config: InitConfig) -> Result<InitOutcome, InitErro
         "Measurement: low={:#x}, mid={:#x}, high={:#x}",
         meas_low, meas_mid, meas_high
     );
+    info!("Fork provider URL: {}", config.fork_provider_url);
 
-    let katana_calldata = vec![
+    let mut katana_calldata = vec![
         amd_address,
         storage_commitment_address,
         meas_low,
         meas_mid,
         meas_high,
     ];
+    ByteArray::from(config.fork_provider_url.as_str())
+        .encode(&mut katana_calldata)
+        .map_err(|e| InitError::InvalidArgument {
+            field: "--fork-provider-url",
+            message: format!("failed to encode constructor ByteArray: {e}"),
+        })?;
 
     let (katana_address, deployment_block) = deploy_with_wait(
         &provider,
@@ -284,7 +312,13 @@ pub async fn run_init_config(config: InitConfig) -> Result<InitOutcome, InitErro
     )
     .await?;
 
-    set_authorized_caller(&provider, &account, storage_commitment_address, katana_address).await?;
+    set_authorized_caller(
+        &provider,
+        &account,
+        storage_commitment_address,
+        katana_address,
+    )
+    .await?;
 
     let state = DeploymentState {
         deployment_block,
@@ -293,9 +327,7 @@ pub async fn run_init_config(config: InitConfig) -> Result<InitOutcome, InitErro
         storage_commitment_address: Some(format!("{:#064x}", storage_commitment_address)),
     };
 
-    state
-        .save()
-        .map_err(InitError::StateSave)?;
+    state.save().map_err(InitError::StateSave)?;
 
     info!("Deployment state saved to {}", crate::state::STATE_FILE);
     info!("  - AMDTeeRegistry: {:#064x}", amd_address);
@@ -341,7 +373,8 @@ async fn deploy_with_wait(
     constructor_calldata: Vec<Felt>,
     salt: Option<Felt>,
 ) -> Result<(Felt, Option<u64>), InitError> {
-    let (maybe_tx, address) = deploy::deploy(account, class_hash, constructor_calldata, salt, false).await?;
+    let (maybe_tx, address) =
+        deploy::deploy(account, class_hash, constructor_calldata, salt, false).await?;
 
     info!("{label} address: {:#064x}", address);
 
@@ -368,8 +401,8 @@ async fn set_authorized_caller(
     storage_commitment_address: Felt,
     katana_address: Felt,
 ) -> Result<(), InitError> {
-    let selector =
-        get_selector_from_name("set_authorized_caller").map_err(|e| InitError::Call(Box::new(e)))?;
+    let selector = get_selector_from_name("set_authorized_caller")
+        .map_err(|e| InitError::Call(Box::new(e)))?;
 
     info!(
         "Setting KatanaTee ({:#064x}) as authorized caller on StorageCommitment ({:#064x})...",
@@ -429,12 +462,11 @@ fn read_measurement_from_json(path: &str) -> Result<String, InitError> {
         field: "--measurement",
         message: format!("cannot read '{}': {}", path, e),
     })?;
-    let json: serde_json::Value = serde_json::from_str(&content).map_err(|e| {
-        InitError::InvalidArgument {
+    let json: serde_json::Value =
+        serde_json::from_str(&content).map_err(|e| InitError::InvalidArgument {
             field: "--measurement",
             message: format!("invalid JSON in '{}': {}", path, e),
-        }
-    })?;
+        })?;
     json["launch_digest"]
         .as_str()
         .map(|s| s.to_string())
@@ -575,8 +607,7 @@ fn parse_program_id_hex(hex_id: &str) -> Result<(Felt, Felt), InitError> {
     if s.len() != 64 || !s.chars().all(|c| c.is_ascii_hexdigit()) {
         return Err(InitError::InvalidArgument {
             field: "--sp1-program-id",
-            message: "expected 32-byte hex value (64 hex chars, optional 0x prefix)"
-                .to_string(),
+            message: "expected 32-byte hex value (64 hex chars, optional 0x prefix)".to_string(),
         });
     }
 
@@ -632,12 +663,15 @@ fn fetch_sp1_program_id_from_cli(
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let prefix = "ProgramID (Onchain Representation): ";
-    let line = stdout.lines().find(|line| line.starts_with(prefix)).ok_or_else(|| {
-        InitError::Sp1ProgramId(
-            "snp-attest-cli output missing 'ProgramID (Onchain Representation)' line"
-                .to_string(),
-        )
-    })?;
+    let line = stdout
+        .lines()
+        .find(|line| line.starts_with(prefix))
+        .ok_or_else(|| {
+            InitError::Sp1ProgramId(
+                "snp-attest-cli output missing 'ProgramID (Onchain Representation)' line"
+                    .to_string(),
+            )
+        })?;
     let hex_id = line.strip_prefix(prefix).unwrap_or("").trim();
     parse_program_id_hex(hex_id)
 }
@@ -645,8 +679,7 @@ fn fetch_sp1_program_id_from_cli(
 fn resolve_contract_class_paths(args: &InitArgs) -> Result<(PathBuf, PathBuf, PathBuf), InitError> {
     let uses_default_artifacts = args.amd_contract_class_path == DEFAULT_AMD_CLASS_PATH
         || args.katana_contract_class_path == DEFAULT_KATANA_CLASS_PATH
-        || args.storage_commitment_contract_class_path
-            == DEFAULT_STORAGE_COMMITMENT_CLASS_PATH;
+        || args.storage_commitment_contract_class_path == DEFAULT_STORAGE_COMMITMENT_CLASS_PATH;
     let missing_artifact = try_resolve_existing_path(&args.amd_contract_class_path).is_none()
         || try_resolve_existing_path(&args.katana_contract_class_path).is_none()
         || try_resolve_existing_path(&args.storage_commitment_contract_class_path).is_none();
@@ -779,7 +812,9 @@ fn rebuild_sp1_program_artifacts(sdk_path: &Path) -> Result<(), InitError> {
         ])
         .current_dir(sdk_path)
         .output()
-        .map_err(|e| InitError::Sp1ProgramId(format!("failed to run cargo clean for SP1 crates: {e}")))?;
+        .map_err(|e| {
+            InitError::Sp1ProgramId(format!("failed to run cargo clean for SP1 crates: {e}"))
+        })?;
 
     if !clean_output.status.success() {
         return Err(InitError::Sp1ProgramId(format!(
@@ -820,9 +855,21 @@ mod tests {
 
         let (low, mid, high) = parse_measurement_hex(big_endian_hex).unwrap();
 
-        assert_eq!(low, Felt::from_hex("0x34d8a0707c0c05f3981f72417a566530").unwrap(), "low");
-        assert_eq!(mid, Felt::from_hex("0xb57365ef3473d3a5638074691e9b53d1").unwrap(), "mid");
-        assert_eq!(high, Felt::from_hex("0x15e6b5f30c6d211c0f87dcb7dce00218").unwrap(), "high");
+        assert_eq!(
+            low,
+            Felt::from_hex("0x34d8a0707c0c05f3981f72417a566530").unwrap(),
+            "low"
+        );
+        assert_eq!(
+            mid,
+            Felt::from_hex("0xb57365ef3473d3a5638074691e9b53d1").unwrap(),
+            "mid"
+        );
+        assert_eq!(
+            high,
+            Felt::from_hex("0x15e6b5f30c6d211c0f87dcb7dce00218").unwrap(),
+            "high"
+        );
     }
 
     #[test]
