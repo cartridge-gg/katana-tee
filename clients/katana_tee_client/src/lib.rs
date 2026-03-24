@@ -66,7 +66,6 @@ pub struct TeeQuoteResponse {
     /// This is the 1184-byte AMD SEV-SNP attestation report.
     pub quote: String,
 
-
     /// The state root at the attested block (hex-encoded Felt).
     pub prev_state_root: String,
 
@@ -80,6 +79,10 @@ pub struct TeeQuoteResponse {
     pub prev_block_number: u64,
     /// The number of the attested block.
     pub block_number: u64,
+
+    /// The block number Katana forked from, when available in newer RPC responses.
+    #[serde(default)]
+    pub fork_block_number: Option<u64>,
 
     /// Merkle root of all events in the attested block (hex-encoded Felt).
     /// Included in report_data: Poseidon(state_root, block_hash, fork_block, events_commitment).

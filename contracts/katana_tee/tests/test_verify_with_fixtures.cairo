@@ -8,9 +8,9 @@
 use amd_tee_registry::cert_cache::CertCacheComponent::{
     ICertCacheDispatcher, ICertCacheDispatcherTrait,
 };
-use amd_tee_registry::tee_registry::AMDTEERegistry;
 use katana_tee::{IKatanaTeeDispatcher, IKatanaTeeDispatcherTrait};
 use snforge_std::fs::{FileParser, FileTrait, read_txt};
+use snforge_std as snf;
 use snforge_std::{
     ContractClassTrait, DeclareResultTrait, EventSpyTrait, EventsFilterTrait, declare, spy_events,
 };
@@ -90,7 +90,8 @@ fn deploy_amd_registry_live_mode() -> ContractAddress {
 
 fn deploy_storage_commitment_registry() -> ContractAddress {
     let contract = declare("StorageCommitment").unwrap().contract_class();
-    let mut calldata: Array<felt252> = array![];
+    let deployer = snf::test_address();
+    let mut calldata: Array<felt252> = array![deployer.into()];
     let (contract_address, _) = contract.deploy(@calldata).unwrap();
     contract_address
 }
@@ -109,13 +110,17 @@ fn deploy_katana_tee_and_storage_commitment_registry(
     let m = load_measurement();
 
     // Constructor calldata:
-    // registry_address, storage_commitment_registry, measurement (Bytes48: low, mid, high)
+    // registry_address, storage_commitment_registry, measurement (Bytes48: low, mid, high),
+    // fork_provider_url (ByteArray encoded as: full_words_len=0, pending_word, pending_len)
     let mut calldata: Array<felt252> = array![];
     calldata.append(registry_address.into());
     calldata.append(storage_commitment_registry.into());
     calldata.append(m.low_bits);
     calldata.append(m.mid_bits);
     calldata.append(m.high_bits);
+    calldata.append(0);
+    calldata.append(0x68747470733a2f2f7270632e6578616d706c65);
+    calldata.append(19);
 
     let (katana_contract_address, _) = contract.deploy(@calldata).unwrap();
 
@@ -220,6 +225,8 @@ fn test_verify_and_update_state() {
     let state_root: felt252 = 0x4ff77ff86b29cd49b7c37d57fa7f1ea06d6c09145c4e18e82fb9667359f2c26;
     let block_hash: felt252 = 0x26198ccf53a6611cd2a6cab0906e98f7e7524ec163d266aec615ab2def91809;
     let block_number: u64 = 6149472;
+    let attestation_config_contract: ContractAddress = 0.try_into().unwrap();
+    let shard_id: felt252 = 0;
 
     // Start spying BEFORE the action
     let mut spy = spy_events();
@@ -228,7 +235,12 @@ fn test_verify_and_update_state() {
     // but test is #[ignore] and needs new fixtures anyway)
     let (result, end_block_number) = katana_dispatcher
         .verify_and_update_state(
-            sp1_proof, state_root, block_hash, block_number, 0, 0, u256 { low: 0, high: 0 },
+            sp1_proof,
+            state_root,
+            block_hash,
+            block_number,
+            attestation_config_contract,
+            shard_id,
         )
         .unwrap();
 

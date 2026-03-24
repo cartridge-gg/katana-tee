@@ -124,6 +124,8 @@ impl KatanaTeeStarknetClient {
         state_root: Felt,
         block_hash: Felt,
         block_number: u64,
+        attestation_config_contract: Felt,
+        shard_id: Felt,
     ) -> Result<Felt, Error> {
         let selector = get_selector_from_name("verify_and_update_state").map_err(|e| {
             Error::Registry(amd_tee_registry_client::Error::Starknet(format!(
@@ -131,12 +133,14 @@ impl KatanaTeeStarknetClient {
             )))
         })?;
 
-        let mut calldata: Vec<Felt> = Vec::with_capacity(sp1_proof.len() + 4);
+        let mut calldata: Vec<Felt> = Vec::with_capacity(sp1_proof.len() + 6);
         calldata.push(Felt::from(sp1_proof.len() as u64));
         calldata.extend_from_slice(&sp1_proof);
         calldata.push(state_root);
         calldata.push(block_hash);
         calldata.push(Felt::from(block_number));
+        calldata.push(attestation_config_contract);
+        calldata.push(shard_id);
 
         let call = Call {
             to: self.contract_address,

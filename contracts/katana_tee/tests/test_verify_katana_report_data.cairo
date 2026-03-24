@@ -2,14 +2,18 @@
 
 use core::integer::{u128_byte_reverse, u512};
 use core::poseidon::poseidon_hash_span;
-use katana_tee::katana_report_utils::verify_katana_report_data;
+use katana_tee::katana_report_utils::{compute_katana_args_hash, verify_katana_report_data};
 
 fn zero_u256() -> u256 {
     u256 { low: 0, high: 0 }
 }
 
 fn build_report_data(
-    state_root: felt252, block_hash: felt252, fork_block_number: u64, events_commitment: felt252,
+    state_root: felt252,
+    block_hash: felt252,
+    fork_block_number: u64,
+    events_commitment: felt252,
+    args_hash: u256,
 ) -> u512 {
     let commitment = poseidon_hash_span(
         array![state_root, block_hash, fork_block_number.into(), events_commitment].span(),
@@ -18,8 +22,8 @@ fn build_report_data(
     u512 {
         limb0: u128_byte_reverse(commitment_u256.high),
         limb1: u128_byte_reverse(commitment_u256.low),
-        limb2: 0,
-        limb3: 0,
+        limb2: u128_byte_reverse(args_hash.high),
+        limb3: u128_byte_reverse(args_hash.low),
     }
 }
 
@@ -32,7 +36,7 @@ fn test_verify_katana_report_data_case_1() {
     let events_commitment: felt252 = 0x0;
 
     let report_data = build_report_data(
-        state_root, block_hash, fork_block_number, events_commitment,
+        state_root, block_hash, fork_block_number, events_commitment, zero_u256(),
     );
     let result = verify_katana_report_data(
         report_data, state_root, block_hash, fork_block_number, events_commitment, zero_u256(),
@@ -49,7 +53,7 @@ fn test_verify_katana_report_data_case_2() {
     let events_commitment: felt252 = 0x3;
 
     let report_data = build_report_data(
-        state_root, block_hash, fork_block_number, events_commitment,
+        state_root, block_hash, fork_block_number, events_commitment, zero_u256(),
     );
     let result = verify_katana_report_data(
         report_data, state_root, block_hash, fork_block_number, events_commitment, zero_u256(),
@@ -67,7 +71,7 @@ fn test_verify_katana_report_data_case_3() {
         0x01a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1;
 
     let report_data = build_report_data(
-        state_root, block_hash, fork_block_number, events_commitment,
+        state_root, block_hash, fork_block_number, events_commitment, zero_u256(),
     );
     let result = verify_katana_report_data(
         report_data, state_root, block_hash, fork_block_number, events_commitment, zero_u256(),
@@ -84,7 +88,7 @@ fn test_verify_katana_report_data_with_fork_block() {
     let events_commitment: felt252 = 0xabc;
 
     let report_data = build_report_data(
-        state_root, block_hash, fork_block_number, events_commitment,
+        state_root, block_hash, fork_block_number, events_commitment, zero_u256(),
     );
     let result = verify_katana_report_data(
         report_data, state_root, block_hash, fork_block_number, events_commitment, zero_u256(),
@@ -102,7 +106,7 @@ fn test_verify_katana_report_data_mismatch() {
     let events_commitment: felt252 = 0x0;
 
     let report_data = build_report_data(
-        state_root, block_hash, fork_block_number, events_commitment,
+        state_root, block_hash, fork_block_number, events_commitment, zero_u256(),
     );
     // Pass wrong state_root (0x3 instead of 0x1)
     verify_katana_report_data(
@@ -118,7 +122,7 @@ fn test_verify_katana_report_data_fork_block_mismatch() {
     let block_hash: felt252 = 0x2;
     let events_commitment: felt252 = 0x0;
 
-    let report_data = build_report_data(state_root, block_hash, 100, events_commitment);
+    let report_data = build_report_data(state_root, block_hash, 100, events_commitment, zero_u256());
     // Pass wrong fork_block (200 instead of 100)
     verify_katana_report_data(
         report_data, state_root, block_hash, 200, events_commitment, zero_u256(),
@@ -133,18 +137,50 @@ fn test_verify_katana_report_data_events_commitment_mismatch() {
     let block_hash: felt252 = 0x2;
     let fork_block_number: u64 = 0;
 
-    let report_data = build_report_data(state_root, block_hash, fork_block_number, 0xaaa);
+    let report_data = build_report_data(state_root, block_hash, fork_block_number, 0xaaa, zero_u256());
     // Pass wrong events_commitment (0xbbb instead of 0xaaa)
     verify_katana_report_data(
         report_data, state_root, block_hash, fork_block_number, 0xbbb, zero_u256(),
     );
 }
 
+#[test]
+fn test_verify_katana_report_data_with_nonzero_args_hash() {
+    let state_root: felt252 = 0x123;
+    let block_hash: felt252 = 0x456;
+    let fork_block_number: u64 = 77;
+    let events_commitment: felt252 = 0x789;
+    let args_hash = u256 {
+        low: 0x11223344556677889900aabbccddeeff, high: 0xffeeddccbbaa00998877665544332211,
+    };
+
+    let report_data = build_report_data(
+        state_root, block_hash, fork_block_number, events_commitment, args_hash,
+    );
+
+    assert(
+        verify_katana_report_data(
+            report_data, state_root, block_hash, fork_block_number, events_commitment, args_hash,
+        ),
+        'Verification should pass',
+    );
+}
+
+#[test]
+fn test_compute_katana_args_hash_matches_hypervisor_canonical_string() {
+    let fork_provider_url: ByteArray = "https://x.io";
+    let hash = compute_katana_args_hash(@fork_provider_url, 42);
+
+    assert(hash.high == 0x6d371494d4009a6ed584ee4a5c5320c1, 'Wrong args hash high');
+    assert(hash.low == 0x52f22be087ef17c135a35ef9f1535088, 'Wrong args hash low');
+}
+
 /// Test that a non-zero args hash limb mismatches the expected zero args hash.
 #[test]
 #[should_panic(expected: 'Args hash mismatch')]
 fn test_verify_katana_report_data_limb2_nonzero() {
-    let report_data = u512 { limb0: 0, limb1: 0, limb2: 1, limb3: 0 };
+    let report_data = build_report_data(0x123, 0x456, 0, 0x0, zero_u256());
+    let report_data = u512 { limb0: report_data.limb0, limb1: report_data.limb1, limb2: 1, limb3: 0 };
 
     verify_katana_report_data(report_data, 0x123, 0x456, 0, 0x0, zero_u256());
 }
@@ -153,7 +189,8 @@ fn test_verify_katana_report_data_limb2_nonzero() {
 #[test]
 #[should_panic(expected: 'Args hash mismatch')]
 fn test_verify_katana_report_data_limb3_nonzero() {
-    let report_data = u512 { limb0: 0, limb1: 0, limb2: 0, limb3: 1 };
+    let report_data = build_report_data(0x123, 0x456, 0, 0x0, zero_u256());
+    let report_data = u512 { limb0: report_data.limb0, limb1: report_data.limb1, limb2: 0, limb3: 1 };
 
     verify_katana_report_data(report_data, 0x123, 0x456, 0, 0x0, zero_u256());
 }

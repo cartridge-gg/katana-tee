@@ -16,12 +16,13 @@ fn test_verify_katana_report_data_layout() {
         array![state_root, block_hash, fork_block_number.into(), events_commitment].span(),
     );
     let commitment_u256: u256 = commitment.into();
+    let args_hash = zero_u256();
 
     let report_data = u512 {
         limb0: u128_byte_reverse(commitment_u256.high),
         limb1: u128_byte_reverse(commitment_u256.low),
-        limb2: 0,
-        limb3: 0,
+        limb2: u128_byte_reverse(args_hash.high),
+        limb3: u128_byte_reverse(args_hash.low),
     };
 
     assert(
@@ -42,12 +43,13 @@ fn test_verify_katana_report_data_with_fork_block() {
         array![state_root, block_hash, fork_block_number.into(), events_commitment].span(),
     );
     let commitment_u256: u256 = commitment.into();
+    let args_hash = zero_u256();
 
     let report_data = u512 {
         limb0: u128_byte_reverse(commitment_u256.high),
         limb1: u128_byte_reverse(commitment_u256.low),
-        limb2: 0,
-        limb3: 0,
+        limb2: u128_byte_reverse(args_hash.high),
+        limb3: u128_byte_reverse(args_hash.low),
     };
 
     assert(
