@@ -1,7 +1,7 @@
 [submodule "crates/katana"]
 	path = crates/katana
 	url = https://github.com/michalpalkowski/katana.git
-	branch = feature/event-proof
+	branch = feature/sharding-storage-diff
 [submodule "crates/amd-sev-snp-attestation-sdk"]
 	path = crates/amd-sev-snp-attestation-sdk
 	url = https://github.com/michalpalkowski/amd-sev-snp-attestation-sdk.git
