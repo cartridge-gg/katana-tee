@@ -105,6 +105,11 @@ pub struct EventProofParams {
     pub events_count: u32,
     pub event_merkle_proof: Vec<Bytes>,
     pub end_block_number: u64,
+    // Event content for hash recomputation verification
+    pub event_tx_hash: B256,
+    pub event_from_address: B256,
+    pub event_keys: Vec<B256>,
+    pub event_data: Vec<B256>,
 }
 
 /// Proof result with cache metadata for transparency
@@ -415,6 +420,11 @@ pub fn prepare_verifier_input_with_storage(
         eventsCount: 0,
         eventMerkleProof: vec![],
         endBlockNumber: 0,
+        // Event content (empty = no content verification)
+        eventTxHash: B256::ZERO,
+        eventFromAddress: B256::ZERO,
+        eventKeys: vec![],
+        eventData: vec![],
     };
     if let Some(s) = storage {
         input.globalStateRoot = s.global_state_root;
@@ -438,6 +448,10 @@ pub fn prepare_verifier_input_with_storage(
         input.eventsCount = e.events_count;
         input.eventMerkleProof = e.event_merkle_proof;
         input.endBlockNumber = e.end_block_number;
+        input.eventTxHash = e.event_tx_hash;
+        input.eventFromAddress = e.event_from_address;
+        input.eventKeys = e.event_keys;
+        input.eventData = e.event_data;
     }
     input
 }
