@@ -28,9 +28,15 @@ pub struct ContractInfo {
 
 #[starknet::interface]
 pub trait IStorageCommitment<TContractState> {
-    /// Register a storage commitment hash that was verified by the TEE (SP1 proof).
+    /// Register a storage commitment hash that was verified by the TEE (SP1 proof),
+    /// along with the SP1-proven event content for trustless shard binding.
     /// Only callable by the authorized caller (KatanaTee contract).
-    fn register_verified_commitment(ref self: TContractState, commitment: felt252);
+    fn register_verified_commitment(
+        ref self: TContractState,
+        commitment: felt252,
+        event_game_contract: felt252,
+        event_shard_id: felt252,
+    );
 
     /// Set the authorized caller (KatanaTee contract address).
     /// Can only be called once by the deployer. Immutable after that.
@@ -50,14 +56,15 @@ pub trait IStorageCommitment<TContractState> {
     /// 5. If all checks pass: deletes commitment, increments nonce, updates
     /// latest_global_state_root
     ///
-    /// Returns true if verified successfully.
+    /// Returns (verified, event_game_contract, event_shard_id).
+    /// Event content is consumed (cleared) on successful verification.
     fn verify(
         ref self: TContractState,
         storage_commitment: felt252,
         contract_address: ContractAddress,
         global_state_root: felt252,
         end_block_number: u64,
-    ) -> bool;
+    ) -> (bool, felt252, felt252);
 
     fn is_registered(self: @TContractState, commitment: felt252) -> bool;
 
@@ -85,6 +92,9 @@ pub mod StorageCommitment {
     #[storage]
     struct Storage {
         commitments: Map<Commitment, Registered>,
+        /// SP1-proven event content keyed by commitment hash.
+        proven_game_contract: Map<Commitment, felt252>,
+        proven_shard_id: Map<Commitment, felt252>,
         contract_infos: Map<ContractAddress, ContractInfo>,
         /// The only address allowed to call register_verified_commitment.
         /// Set once after deployment via set_authorized_caller.
@@ -124,13 +134,19 @@ pub mod StorageCommitment {
 
     #[abi(embed_v0)]
     impl StorageCommitmentImpl of super::IStorageCommitment<ContractState> {
-        fn register_verified_commitment(ref self: ContractState, commitment: felt252) {
+        fn register_verified_commitment(
+            ref self: ContractState,
+            commitment: felt252,
+            event_game_contract: felt252,
+            event_shard_id: felt252,
+        ) {
             let authorized = self.authorized_caller.read();
             assert(authorized != contract_address_const::<0>(), 'Authorized caller not set');
             assert(get_caller_address() == authorized, 'Unauthorized caller');
-            // Only register if not already registered
             if !self.commitments.read(commitment) {
                 self.commitments.write(commitment, true);
+                self.proven_game_contract.write(commitment, event_game_contract);
+                self.proven_shard_id.write(commitment, event_shard_id);
                 self.emit(CommitmentRegisteredEvent { commitment });
             }
         }
@@ -155,7 +171,7 @@ pub mod StorageCommitment {
             contract_address: ContractAddress,
             global_state_root: felt252,
             end_block_number: u64,
-        ) -> bool {
+        ) -> (bool, felt252, felt252) {
             let info = self.contract_infos.read(contract_address);
 
             let expected_commitment = InternalImpl::compute_commitment(
@@ -166,22 +182,16 @@ pub mod StorageCommitment {
                 end_block_number,
             );
 
-            // if !self.commitments.read(expected_commitment) {
-            //     return false; // Not registered
-            // }
             assert(self.commitments.read(expected_commitment), 'Commitment not registered');
-
-            // if info.nonce > 0 && global_state_root == info.latest_global_state_root {
-            //     return false; // State root unchanged
-            // }
-
-            // Reject zero state root (default/invalid value)
             assert(global_state_root != 0, 'Invalid zero state root');
-            // Ensure state root changed since last verification.
-            // Works for nonce=0 too: latest_global_state_root defaults to 0, which we reject above.
             assert(global_state_root != info.latest_global_state_root, 'State root unchanged');
 
+            // Read and clear proven event content (one-shot)
+            let event_game_contract = self.proven_game_contract.read(expected_commitment);
+            let event_shard_id = self.proven_shard_id.read(expected_commitment);
             self.commitments.write(expected_commitment, false);
+            self.proven_game_contract.write(expected_commitment, 0);
+            self.proven_shard_id.write(expected_commitment, 0);
 
             self
                 .contract_infos
@@ -202,7 +212,7 @@ pub mod StorageCommitment {
                     },
                 );
 
-            true
+            (true, event_game_contract, event_shard_id)
         }
 
         fn is_registered(self: @ContractState, commitment: felt252) -> bool {

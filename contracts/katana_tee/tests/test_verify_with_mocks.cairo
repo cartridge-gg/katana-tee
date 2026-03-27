@@ -175,7 +175,13 @@ mod MockStorageCommitment {
 
     #[abi(embed_v0)]
     impl MockStorageCommitmentImpl of IStorageCommitment<ContractState> {
-        fn register_verified_commitment(ref self: ContractState, commitment: felt252) {
+        fn register_verified_commitment(
+            ref self: ContractState,
+            commitment: felt252,
+            event_game_contract: felt252,
+            event_shard_id: felt252,
+        ) {
+            let _ = (event_game_contract, event_shard_id);
             self.commitments.write(commitment, true);
         }
 
@@ -193,7 +199,7 @@ mod MockStorageCommitment {
             contract_address: ContractAddress,
             global_state_root: felt252,
             end_block_number: u64,
-        ) -> bool {
+        ) -> (bool, felt252, felt252) {
             let _ = end_block_number;
             let registered = self.commitments.read(storage_commitment);
             if registered {
@@ -208,7 +214,7 @@ mod MockStorageCommitment {
                         },
                     );
             }
-            registered
+            (registered, 0, 0)
         }
 
         fn is_registered(self: @ContractState, commitment: felt252) -> bool {

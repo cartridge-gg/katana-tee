@@ -137,7 +137,11 @@ pub mod KatanaTee {
                     IStorageCommitmentDispatcher {
                         contract_address: self.storage_commitment_registry.read(),
                     }
-                        .register_verified_commitment(journal.shard.storage_commitment);
+                        .register_verified_commitment(
+                            journal.shard.storage_commitment,
+                            journal.shard.event_game_contract,
+                            journal.shard.event_shard_id,
+                        );
 
                     Result::Ok((
                         true,
@@ -166,4 +170,5 @@ pub mod KatanaTee {
             self.measurement.read()
         }
     }
+
 }

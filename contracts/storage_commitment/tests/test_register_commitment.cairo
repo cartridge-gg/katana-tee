@@ -51,7 +51,7 @@ fn test_register_commitment() {
     assert(!dispatcher.is_registered(commitment), 'Should not be registered');
 
     // Register
-    dispatcher.register_verified_commitment(commitment);
+    dispatcher.register_verified_commitment(commitment, 0, 0);
 
     // After registration
     assert(dispatcher.is_registered(commitment), 'Should be registered');
@@ -65,8 +65,8 @@ fn test_register_idempotent() {
     let commitment: felt252 = 0x111222;
 
     // Register twice - should not fail
-    dispatcher.register_verified_commitment(commitment);
-    dispatcher.register_verified_commitment(commitment);
+    dispatcher.register_verified_commitment(commitment, 0, 0);
+    dispatcher.register_verified_commitment(commitment, 0, 0);
 
     assert(dispatcher.is_registered(commitment), 'Should still be registered');
 }
@@ -90,11 +90,11 @@ fn test_verify_flow() {
     );
 
     // Register the commitment (simulating what KatanaTee does)
-    dispatcher.register_verified_commitment(commitment_hash);
+    dispatcher.register_verified_commitment(commitment_hash, 0, 0);
     assert(dispatcher.is_registered(commitment_hash), 'Should be registered');
 
     // Verify (simulating what sharding contract does)
-    let verified = dispatcher.verify(storage_commitment, storage_contract, storage_state_root, 0);
+    let (verified, _, _) = dispatcher.verify(storage_commitment, storage_contract, storage_state_root, 0);
     assert(verified, 'Should verify successfully');
 
     // After verification:
@@ -137,10 +137,10 @@ fn test_replay_protection_nonce() {
     let commitment_hash_0 = compute_commitment(
         storage_commitment, storage_contract, 0, storage_state_root, 0,
     );
-    dispatcher.register_verified_commitment(commitment_hash_0);
+    dispatcher.register_verified_commitment(commitment_hash_0, 0, 0);
 
     // Verify first time - should succeed
-    let verified1 = dispatcher.verify(storage_commitment, storage_contract, storage_state_root, 0);
+    let (verified1, _, _) = dispatcher.verify(storage_commitment, storage_contract, storage_state_root, 0);
     assert(verified1, 'First verify should succeed');
     assert(dispatcher.get_nonce(storage_contract) == 1, 'Nonce should be 1');
 
@@ -165,15 +165,15 @@ fn test_state_root_must_change() {
     let commitment_hash_0 = compute_commitment(
         storage_commitment1, storage_contract, 0, storage_state_root, 0,
     );
-    dispatcher.register_verified_commitment(commitment_hash_0);
-    let verified1 = dispatcher.verify(storage_commitment1, storage_contract, storage_state_root, 0);
+    dispatcher.register_verified_commitment(commitment_hash_0, 0, 0);
+    let (verified1, _, _) = dispatcher.verify(storage_commitment1, storage_contract, storage_state_root, 0);
     assert(verified1, 'First verify should succeed');
 
     // Second commitment with nonce=1 but SAME state_root
     let commitment_hash_1 = compute_commitment(
         storage_commitment2, storage_contract, 1, storage_state_root, 0 // same state_root!
     );
-    dispatcher.register_verified_commitment(commitment_hash_1);
+    dispatcher.register_verified_commitment(commitment_hash_1, 0, 0);
 
     // Should panic because state_root unchanged
     dispatcher.verify(storage_commitment2, storage_contract, storage_state_root, 0);
@@ -196,8 +196,8 @@ fn test_multiple_contracts_independent() {
 
     // Register and verify for contract A
     let commitment_a = compute_commitment(storage_commitment, contract_a, 0, state_root_a, 0);
-    dispatcher.register_verified_commitment(commitment_a);
-    let verified_a = dispatcher.verify(storage_commitment, contract_a, state_root_a, 0);
+    dispatcher.register_verified_commitment(commitment_a, 0, 0);
+    let (verified_a, _, _) = dispatcher.verify(storage_commitment, contract_a, state_root_a, 0);
     assert(verified_a, 'A should verify');
 
     // A's nonce should be 1, B's still 0
@@ -206,8 +206,8 @@ fn test_multiple_contracts_independent() {
 
     // Register and verify for contract B (uses nonce 0)
     let commitment_b = compute_commitment(storage_commitment, contract_b, 0, state_root_b, 0);
-    dispatcher.register_verified_commitment(commitment_b);
-    let verified_b = dispatcher.verify(storage_commitment, contract_b, state_root_b, 0);
+    dispatcher.register_verified_commitment(commitment_b, 0, 0);
+    let (verified_b, _, _) = dispatcher.verify(storage_commitment, contract_b, state_root_b, 0);
     assert(verified_b, 'B should verify');
 
     // Both should have their own nonces
@@ -229,14 +229,14 @@ fn test_cannot_reuse_deleted_commitment() {
     let commitment_hash = compute_commitment(
         storage_commitment, storage_contract, 0, storage_state_root, 0,
     );
-    dispatcher.register_verified_commitment(commitment_hash);
+    dispatcher.register_verified_commitment(commitment_hash, 0, 0);
     dispatcher.verify(storage_commitment, storage_contract, storage_state_root, 0);
 
     // Commitment should be deleted
     assert(!dispatcher.is_registered(commitment_hash), 'Should be deleted');
 
     // Try to re-register the same commitment hash (attacker re-verifies SP1 proof)
-    dispatcher.register_verified_commitment(commitment_hash);
+    dispatcher.register_verified_commitment(commitment_hash, 0, 0);
 
     // Commitment is registered again
     assert(dispatcher.is_registered(commitment_hash), 'Should be re-registered');
