@@ -61,9 +61,6 @@ fn deploy_live_mode() -> ContractAddress {
     calldata.append(genoa_root.low.into());
     calldata.append(genoa_root.high.into());
 
-    // storage_commitment_proxy (0 = disabled)
-    calldata.append(0);
-
     let (contract_address, _) = contract.deploy(@calldata).unwrap();
     contract_address
 }
@@ -97,9 +94,6 @@ fn deploy_fixture_mode() -> ContractAddress {
     calldata.append(1);
     calldata.append(milan_root.low.into());
     calldata.append(milan_root.high.into());
-
-    // storage_commitment_proxy (0 = disabled)
-    calldata.append(0);
 
     let (contract_address, _) = contract.deploy(@calldata).unwrap();
     contract_address

@@ -5,8 +5,14 @@ use storage_commitment::{IStorageCommitmentDispatcher, IStorageCommitmentDispatc
 
 fn deploy_storage_commitment() -> ContractAddress {
     let contract_class = declare("StorageCommitment").unwrap().contract_class();
-    let calldata: Array<felt252> = array![];
+    let deployer = snforge_std::test_address();
+    let calldata: Array<felt252> = array![deployer.into()];
     let (contract_address, _) = contract_class.deploy(@calldata).unwrap();
+
+    // Authorize the test contract to register commitments
+    let dispatcher = IStorageCommitmentDispatcher { contract_address };
+    dispatcher.set_authorized_caller(deployer);
+
     contract_address
 }
 
