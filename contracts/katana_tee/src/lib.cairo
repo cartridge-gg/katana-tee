@@ -15,7 +15,8 @@ pub trait IKatanaTee<TContractState> {
     /// Verify proof and update the latest verified sequencer state.
     /// Also registers the storage commitment from the SP1 journal.
     ///
-    /// Returns (success, end_block_number, event_game_contract, event_shard_id).
+    /// Returns (success, end_block_number, event_game_contract, event_shard_id,
+    ///          initial_storage_commitment, fork_state_root).
     /// The caller (world contract) must verify event_game_contract and event_shard_id
     /// match the settlement parameters for trustless binding.
     fn verify_and_update_state(
@@ -26,7 +27,7 @@ pub trait IKatanaTee<TContractState> {
         block_number: u64,
         fork_provider_url: ByteArray,
         fork_block_number: u64,
-    ) -> Result<(bool, u64, felt252, felt252), felt252>;
+    ) -> Result<(bool, u64, felt252, felt252, felt252, felt252), felt252>;
 
     /// Get the AMD TEE Registry contract address.
     fn get_registry_address(self: @TContractState) -> ContractAddress;
@@ -98,7 +99,7 @@ pub mod KatanaTee {
             block_number: u64,
             fork_provider_url: ByteArray,
             fork_block_number: u64,
-        ) -> Result<(bool, u64, felt252, felt252), felt252> {
+        ) -> Result<(bool, u64, felt252, felt252, felt252, felt252), felt252> {
             let registry = IAMDTeeRegistryDispatcher {
                 contract_address: self.registry_address.read(),
             };
@@ -127,6 +128,7 @@ pub mod KatanaTee {
                         block_hash,
                         fork_block_number,
                         journal.shard.events_commitment,
+                        journal.shard.fork_state_root,
                         expected_args_hash,
                     );
 
@@ -148,6 +150,8 @@ pub mod KatanaTee {
                         journal.shard.end_block_number,
                         journal.shard.event_game_contract,
                         journal.shard.event_shard_id,
+                        journal.shard.initial_storage_commitment,
+                        journal.shard.fork_state_root,
                     ))
                 },
                 Result::Err(error) => Result::Err(error),

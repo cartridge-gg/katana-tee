@@ -52,6 +52,12 @@ fn generate_nested_abi_fixture() {
             eventShardId: B256::from_slice(&{
                 let mut b = [0u8; 32]; b[0] = 0x06; b.iter_mut().skip(1).for_each(|x| *x = 0x66); b
             }),
+            initialStorageCommitment: B256::from_slice(&{
+                let mut b = [0u8; 32]; b[0] = 0x07; b.iter_mut().skip(1).for_each(|x| *x = 0x77); b
+            }),
+            forkStateRoot: B256::from_slice(&{
+                let mut b = [0u8; 32]; b[0] = 0x01; b.iter_mut().skip(1).for_each(|x| *x = 0x88); b
+            }),
         },
     };
 
@@ -129,6 +135,8 @@ fn generate_nested_abi_fixture() {
     println!("            end_block_number: 123,");
     println!("            event_game_contract: 0x{},", hex::encode(journal.shard.eventGameContract));
     println!("            event_shard_id: 0x{},", hex::encode(journal.shard.eventShardId));
+    println!("            initial_storage_commitment: 0x{},", hex::encode(journal.shard.initialStorageCommitment));
+    println!("            fork_state_root: 0x{},", hex::encode(journal.shard.forkStateRoot));
     println!("        }},");
     println!("    }}");
     println!("}}");
@@ -140,5 +148,7 @@ fn generate_nested_abi_fixture() {
     assert_eq!(decoded.shard.endBlockNumber, 123);
     assert_eq!(decoded.shard.eventGameContract, journal.shard.eventGameContract);
     assert_eq!(decoded.shard.eventShardId, journal.shard.eventShardId);
+    assert_eq!(decoded.shard.initialStorageCommitment, journal.shard.initialStorageCommitment);
+    assert_eq!(decoded.shard.forkStateRoot, journal.shard.forkStateRoot);
     println!("\n// Round-trip verification: OK");
 }

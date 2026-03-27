@@ -104,6 +104,10 @@ pub struct ShardProof {
     pub end_block_number: u64,
     pub event_game_contract: felt252,
     pub event_shard_id: felt252,
+    /// Commitment to verified initial storage at fork block (0 = no initial proof).
+    pub initial_storage_commitment: felt252,
+    /// Fork state root attested by TEE, for on-chain verification of initial proofs.
+    pub fork_state_root: felt252,
 }
 
 /// Decoded SP1 journal combining attestation and shard proof data.

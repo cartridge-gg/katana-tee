@@ -41,10 +41,11 @@ fn build_report_data(
     block_hash: felt252,
     fork_block_number: u64,
     events_commitment: felt252,
+    fork_state_root: felt252,
     args_hash: u256,
 ) -> u512 {
     let commitment = poseidon_hash_span(
-        array![state_root, block_hash, fork_block_number.into(), events_commitment].span(),
+        array![state_root, block_hash, fork_block_number.into(), events_commitment, fork_state_root].span(),
     );
     let commitment_u256: u256 = commitment.into();
     u512 {
@@ -72,6 +73,7 @@ fn build_mock_raw_report() -> Array<u32> {
         TEST_BLOCK_HASH,
         TEST_FORK_BLOCK_NUMBER,
         TEST_EVENTS_COMMITMENT,
+        0,
         test_args_hash(),
     );
     let measurement = test_measurement();
@@ -146,6 +148,8 @@ mod MockAmdTeeRegistry {
                         end_block_number: TEST_END_BLOCK_NUMBER,
                         event_game_contract: 0,
                         event_shard_id: 0,
+                        initial_storage_commitment: 0,
+                        fork_state_root: 0,
                     },
                 },
             )
@@ -280,7 +284,7 @@ fn test_verify_and_update_state_full_flow_with_mocks() {
 
     let sp1_proof: Array<felt252> = array![];
     let fork_provider_url: ByteArray = "https://rpc.example";
-    let (result, end_block_number, _event_game_contract, _event_shard_id) = katana_dispatcher
+    let (result, end_block_number, _event_game_contract, _event_shard_id, _initial_commitment, _fork_state_root) = katana_dispatcher
         .verify_and_update_state(
             sp1_proof,
             TEST_STATE_ROOT,

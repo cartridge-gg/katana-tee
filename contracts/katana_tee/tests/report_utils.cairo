@@ -13,7 +13,7 @@ fn test_verify_katana_report_data_layout() {
     let fork_block_number: u64 = 0;
     let events_commitment: felt252 = 0;
     let commitment = poseidon_hash_span(
-        array![state_root, block_hash, fork_block_number.into(), events_commitment].span(),
+        array![state_root, block_hash, fork_block_number.into(), events_commitment, 0].span(),
     );
     let commitment_u256: u256 = commitment.into();
     let args_hash = zero_u256();
@@ -27,7 +27,7 @@ fn test_verify_katana_report_data_layout() {
 
     assert(
         verify_katana_report_data(
-            report_data, state_root, block_hash, fork_block_number, events_commitment, zero_u256(),
+            report_data, state_root, block_hash, fork_block_number, events_commitment, 0, zero_u256(),
         ),
         'Verification should succeed',
     );
@@ -40,7 +40,7 @@ fn test_verify_katana_report_data_with_fork_block() {
     let fork_block_number: u64 = 42;
     let events_commitment: felt252 = 0x789;
     let commitment = poseidon_hash_span(
-        array![state_root, block_hash, fork_block_number.into(), events_commitment].span(),
+        array![state_root, block_hash, fork_block_number.into(), events_commitment, 0].span(),
     );
     let commitment_u256: u256 = commitment.into();
     let args_hash = zero_u256();
@@ -54,7 +54,7 @@ fn test_verify_katana_report_data_with_fork_block() {
 
     assert(
         verify_katana_report_data(
-            report_data, state_root, block_hash, fork_block_number, events_commitment, zero_u256(),
+            report_data, state_root, block_hash, fork_block_number, events_commitment, 0, zero_u256(),
         ),
         'Verification should succeed',
     );

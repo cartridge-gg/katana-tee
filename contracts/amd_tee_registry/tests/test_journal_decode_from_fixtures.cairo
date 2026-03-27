@@ -79,6 +79,14 @@ fn assert_journal_eq(actual: DecodedJournal, expected: DecodedJournal) {
         actual.shard.event_shard_id == expected.shard.event_shard_id,
         'event shard id mismatch',
     );
+    assert(
+        actual.shard.initial_storage_commitment == expected.shard.initial_storage_commitment,
+        'initial commitment mismatch',
+    );
+    assert(
+        actual.shard.fork_state_root == expected.shard.fork_state_root,
+        'fork state root mismatch',
+    );
 }
 
 #[test]

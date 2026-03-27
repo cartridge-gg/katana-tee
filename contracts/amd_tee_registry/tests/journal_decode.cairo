@@ -7,14 +7,14 @@ fn u256_from_u128(value: u128) -> u256 {
 
 /// Nested ABI layout (after 0x20 wrapper):
 ///   Word 0:   offset to AttestationCore (= 224 = 7*32)
-///   Word 1-6: ShardProof inline
-///   Word 7-13: AttestationCore header
-///   Word 14+: dynamic data (rawReport, certs, certSerials)
+///   Word 1-8: ShardProof inline (8 fields)
+///   Word 9-15: AttestationCore header
+///   Word 16+: dynamic data (rawReport, certs, certSerials)
 ///
-/// AttestationCore dynamic offsets are relative to word 7:
-///   rawReport:   224 bytes  → absolute word 14  (7 + 224/32 = 14)
-///   certs:       1440 bytes → absolute word 52  (7 + 1440/32 = 52)  [14 + 1(len) + 37(data) = 52]
-///   certSerials: 1504 bytes → absolute word 54  (7 + 1504/32 = 54)  [52 + 1(len) + 1(data) = 54]
+/// AttestationCore dynamic offsets are relative to word 9:
+///   rawReport:   224 bytes  → absolute word 16  (9 + 224/32 = 16)
+///   certs:       1440 bytes → absolute word 54  (9 + 1440/32 = 54)  [16 + 1(len) + 37(data) = 54]
+///   certSerials: 1504 bytes → absolute word 56  (9 + 1504/32 = 56)  [54 + 1(len) + 1(data) = 56]
 #[test]
 fn test_decode_nested_journal() {
     let mut words: Array<u256> = array![];
@@ -23,26 +23,28 @@ fn test_decode_nested_journal() {
     words.append(u256_from_u128(0x20));
 
     // ── Outer head ──
-    words.append(u256_from_u128(224)); // offset to AttestationCore
+    words.append(u256_from_u128(288)); // offset to AttestationCore (9 * 32)
 
-    // ShardProof inline (words 1-6)
+    // ShardProof inline (words 1-8)
     words.append(u256_from_u128(0xabc));  // storageCommitment
     words.append(u256_from_u128(0x1234)); // eventsCommitment
     words.append(u256_from_u128(100));    // forkBlockNumber
     words.append(u256_from_u128(200));    // endBlockNumber
     words.append(u256_from_u128(0x42));   // eventGameContract
     words.append(u256_from_u128(0x99));   // eventShardId
+    words.append(u256_from_u128(0xbeef)); // initialStorageCommitment
+    words.append(u256_from_u128(0xcafe)); // forkStateRoot
 
-    // ── AttestationCore header (words 7-13) ──
+    // ── AttestationCore header (words 9-15) ──
     words.append(u256_from_u128(0));    // result = Success
     words.append(u256_from_u128(42));   // timestamp
     words.append(u256_from_u128(1));    // processorModel = Genoa
-    words.append(u256_from_u128(224));  // rawReport offset (relative to word 7)
+    words.append(u256_from_u128(224));  // rawReport offset (relative to word 9)
     words.append(u256_from_u128(1440)); // certs offset (relative)
     words.append(u256_from_u128(1504)); // certSerials offset (relative)
     words.append(u256_from_u128(2));    // trustedCertsPrefixLen
 
-    // ── rawReport at word 14 ──
+    // ── rawReport at word 16 ──
     words.append(u256_from_u128(1184)); // length in bytes (296 u32 = 1184 bytes)
     let mut i: usize = 0;
     while i < 37 { // ceil(1184/32) = 37 words
@@ -50,11 +52,11 @@ fn test_decode_nested_journal() {
         i += 1;
     }
 
-    // ── certs at word 52 ──
+    // ── certs at word 54 ──
     words.append(u256_from_u128(1));      // length = 1
     words.append(u256_from_u128(0x5678)); // cert[0]
 
-    // ── certSerials at word 54 ──
+    // ── certSerials at word 56 ──
     words.append(u256_from_u128(1));      // length = 1
     words.append(u256_from_u128(0xdead)); // serial[0]
 
@@ -67,6 +69,8 @@ fn test_decode_nested_journal() {
     assert(journal.shard.end_block_number == 200, 'Wrong end block number');
     assert(journal.shard.event_game_contract == 0x42, 'Wrong event game contract');
     assert(journal.shard.event_shard_id == 0x99, 'Wrong event shard id');
+    assert(journal.shard.initial_storage_commitment == 0xbeef, 'Wrong initial commitment');
+    assert(journal.shard.fork_state_root == 0xcafe, 'Wrong fork state root');
 
     // AttestationCore
     assert(journal.attestation.result == VerificationResult::Success, 'Wrong result');

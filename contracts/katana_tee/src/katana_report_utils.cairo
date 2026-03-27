@@ -40,7 +40,7 @@ pub fn compute_katana_args_hash(fork_provider_url: @ByteArray, fork_block_number
 /// Verify that report_data matches the Poseidon commitment and runtime args hash.
 ///
 /// report_data layout (64 bytes, represented as u512 with 4 x u128 limbs):
-///   [0..32]  = Poseidon(state_root, block_hash, fork_block_number, events_commitment)
+///   [0..32]  = Poseidon(state_root, block_hash, fork_block_number, events_commitment, fork_state_root)
 ///   [32..64] = SHA-256 hash of security-critical runtime arguments
 ///
 /// The TEE hardware embeds both hashes in the attestation report's report_data field.
@@ -51,6 +51,7 @@ pub fn verify_katana_report_data(
     block_hash: felt252,
     fork_block_number: u64,
     events_commitment: felt252,
+    fork_state_root: felt252,
     args_hash: u256,
 ) -> bool {
     // Verify first 32 bytes: Poseidon commitment to blockchain state
@@ -59,7 +60,14 @@ pub fn verify_katana_report_data(
     };
 
     let commitment = poseidon_hash_span(
-        array![state_root, block_hash, fork_block_number.into(), events_commitment].span(),
+        array![
+            state_root,
+            block_hash,
+            fork_block_number.into(),
+            events_commitment,
+            fork_state_root,
+        ]
+            .span(),
     );
 
     assert(commitment.into() == expected_commitment, 'Commitment mismatch');

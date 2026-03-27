@@ -226,7 +226,7 @@ fn test_verify_and_update_state() {
 
     // events_commitment=0 for legacy fixtures (will fail with 4-field Poseidon mismatch
     // but test is #[ignore] and needs new fixtures anyway)
-    let (result, end_block_number, _event_game_contract, _event_shard_id) = katana_dispatcher
+    let (result, end_block_number, _event_game_contract, _event_shard_id, _initial_commitment, _fork_state_root) = katana_dispatcher
         .verify_and_update_state(
             sp1_proof,
             state_root,

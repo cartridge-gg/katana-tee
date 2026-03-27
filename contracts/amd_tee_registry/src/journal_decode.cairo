@@ -53,9 +53,11 @@ fn decode_journal_from_u32(words: Span<u32>) -> DecodedJournal {
     assert(words.len() >= 14 * 8, 'ABI too short');
 
     // ── Outer head: offset + ShardProof inline ──────────────────────────
+    // ShardProof has 8 fixed-size fields = 8 × 32 = 256 bytes inline.
+    // Word 0 = offset to AttestationCore = 1 (offset word) + 8 (ShardProof) = 9 words = 288 bytes.
     let attestation_offset_bytes = word_to_u64(read_word_u32(words, 0));
-    assert(attestation_offset_bytes == 224, 'Unexpected attestation offset');
-    let attestation_start: usize = 7; // 224 / 32
+    assert(attestation_offset_bytes == 288, 'Unexpected attestation offset');
+    let attestation_start: usize = 9; // 288 / 32
 
     let shard = ShardProof {
         storage_commitment: u256_to_felt(word_to_u256(read_word_u32(words, 1))),
@@ -64,6 +66,8 @@ fn decode_journal_from_u32(words: Span<u32>) -> DecodedJournal {
         end_block_number: word_to_u64(read_word_u32(words, 4)),
         event_game_contract: u256_to_felt(word_to_u256(read_word_u32(words, 5))),
         event_shard_id: u256_to_felt(word_to_u256(read_word_u32(words, 6))),
+        initial_storage_commitment: u256_to_felt(word_to_u256(read_word_u32(words, 7))),
+        fork_state_root: u256_to_felt(word_to_u256(read_word_u32(words, 8))),
     };
 
     // ── AttestationCore header (at word 7) ──────────────────────────────

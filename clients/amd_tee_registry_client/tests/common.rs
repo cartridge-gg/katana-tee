@@ -76,12 +76,13 @@ pub fn build_verifier_input(
     report_bytes: &[u8],
     cert_chain: &CertChain,
 ) -> VerifierInput {
-    amd_tee_registry_client::prepare_verifier_input_with_storage(
-        timestamp,
-        Bytes::from(report_bytes.to_vec()),
-        cert_chain.to_ders(),
-        0,
-        None,
+    amd_tee_registry_client::prepare_verifier_input(
+        amd_tee_registry_client::AttestationParams {
+            timestamp,
+            raw_report: Bytes::from(report_bytes.to_vec()),
+            vek_der_chain: cert_chain.to_ders(),
+            trusted_certs_prefix_len: 0,
+        },
         None,
     )
 }
