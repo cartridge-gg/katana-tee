@@ -1,26 +1,23 @@
 pub mod katana_report_utils;
 use amd_tee_registry::byte_utils::Bytes48;
-use amd_tee_registry::tee_types::VerifierJournal;
+use amd_tee_registry::tee_types::DecodedJournal;
 use starknet::ContractAddress;
 
 /// Interface for the Katana TEE contract.
 #[starknet::interface]
 pub trait IKatanaTee<TContractState> {
     /// Verify an SP1 proof by calling the AMD TEE Registry contract.
-    /// Returns the public inputs if verification succeeds.
+    /// Returns the decoded journal if verification succeeds.
     fn verify_sp1_proof(
         self: @TContractState, sp1_proof: Array<felt252>,
-    ) -> Result<VerifierJournal, felt252>;
+    ) -> Result<DecodedJournal, felt252>;
 
     /// Verify proof and update the latest verified sequencer state.
     /// Also registers the storage commitment from the SP1 journal.
     ///
-    /// `fork_provider_url` and `fork_block_number` are passed in calldata so the
-    /// contract can recompute the expected args hash on-chain. The caller cannot
-    /// lie about these values because the recomputed hash must match
-    /// `report_data[32..64]` attested by the TEE hardware.
-    ///
-    /// Returns (success, end_block_number) where end_block_number comes from SP1 journal.
+    /// Returns (success, end_block_number, event_game_contract, event_shard_id).
+    /// The caller (world contract) must verify event_game_contract and event_shard_id
+    /// match the settlement parameters for trustless binding.
     fn verify_and_update_state(
         ref self: TContractState,
         sp1_proof: Array<felt252>,
@@ -29,7 +26,7 @@ pub trait IKatanaTee<TContractState> {
         block_number: u64,
         fork_provider_url: ByteArray,
         fork_block_number: u64,
-    ) -> Result<(bool, u64), felt252>;
+    ) -> Result<(bool, u64, felt252, felt252), felt252>;
 
     /// Get the AMD TEE Registry contract address.
     fn get_registry_address(self: @TContractState) -> ContractAddress;
@@ -47,7 +44,7 @@ pub mod KatanaTee {
     use amd_tee_registry::byte_utils::Bytes48;
     use amd_tee_registry::tee_registry::{IAMDTeeRegistryDispatcher, IAMDTeeRegistryDispatcherTrait};
     use amd_tee_registry::tee_types::{
-        RawAttestationReport, RawAttestationReportTrait, VerifierJournal,
+        DecodedJournal, RawAttestationReport, RawAttestationReportTrait,
     };
     use starknet::ContractAddress;
     use starknet::storage::{StoragePointerReadAccess, StoragePointerWriteAccess};
@@ -84,17 +81,15 @@ pub mod KatanaTee {
 
     #[abi(embed_v0)]
     impl KatanaTeeImpl of super::IKatanaTee<ContractState> {
-        /// Verify an SP1 proof by forwarding to the AMD TEE Registry.
         fn verify_sp1_proof(
             self: @ContractState, sp1_proof: Array<felt252>,
-        ) -> Result<VerifierJournal, felt252> {
+        ) -> Result<DecodedJournal, felt252> {
             let registry = IAMDTeeRegistryDispatcher {
                 contract_address: self.registry_address.read(),
             };
             registry.verify_sp1_proof(sp1_proof)
         }
 
-        /// Verify proof, validate report data, and update the latest state.
         fn verify_and_update_state(
             ref self: ContractState,
             sp1_proof: Array<felt252>,
@@ -103,25 +98,24 @@ pub mod KatanaTee {
             block_number: u64,
             fork_provider_url: ByteArray,
             fork_block_number: u64,
-        ) -> Result<(bool, u64), felt252> {
+        ) -> Result<(bool, u64, felt252, felt252), felt252> {
             let registry = IAMDTeeRegistryDispatcher {
                 contract_address: self.registry_address.read(),
             };
             match registry.verify_sp1_proof(sp1_proof) {
                 Result::Ok(journal) => {
-                    let raw_report = RawAttestationReport { raw: journal.raw_report };
+                    let raw_report = RawAttestationReport {
+                        raw: journal.attestation.raw_report,
+                    };
 
                     let measurement = raw_report.measurement();
                     assert(measurement == self.get_measurement(), 'Measurement mismatch');
 
                     assert(
-                        journal.fork_block_number == fork_block_number,
+                        journal.shard.fork_block_number == fork_block_number,
                         'Fork block mismatch',
                     );
 
-                    // Recompute expected args hash from calldata — the caller cannot
-                    // lie because the result must match report_data[32..64] attested
-                    // by TEE hardware.
                     let expected_args_hash = compute_katana_args_hash(
                         @fork_provider_url, fork_block_number,
                     );
@@ -132,7 +126,7 @@ pub mod KatanaTee {
                         state_root,
                         block_hash,
                         fork_block_number,
-                        journal.events_commitment,
+                        journal.shard.events_commitment,
                         expected_args_hash,
                     );
 
@@ -143,20 +137,23 @@ pub mod KatanaTee {
                     IStorageCommitmentDispatcher {
                         contract_address: self.storage_commitment_registry.read(),
                     }
-                        .register_verified_commitment(journal.storage_commitment);
+                        .register_verified_commitment(journal.shard.storage_commitment);
 
-                    Result::Ok((true, journal.end_block_number))
+                    Result::Ok((
+                        true,
+                        journal.shard.end_block_number,
+                        journal.shard.event_game_contract,
+                        journal.shard.event_shard_id,
+                    ))
                 },
                 Result::Err(error) => Result::Err(error),
             }
         }
 
-        /// Get the AMD TEE Registry contract address.
         fn get_registry_address(self: @ContractState) -> ContractAddress {
             self.registry_address.read()
         }
 
-        /// Get the latest verified sequencer state.
         fn get_latest_state(self: @ContractState) -> (u64, felt252, felt252) {
             (
                 self.latest_block_number.read(),
@@ -165,7 +162,6 @@ pub mod KatanaTee {
             )
         }
 
-        /// Get the measurement.
         fn get_measurement(self: @ContractState) -> Bytes48 {
             self.measurement.read()
         }

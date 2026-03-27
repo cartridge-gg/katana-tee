@@ -134,21 +134,21 @@ pub fn print_report(report: &AttestationReport, fixture_name: &str) {
 }
 
 pub fn print_journal(journal: &VerifierJournal) {
-    println!("Verification result: {:?}", journal.result);
-    println!("Processor model (u8): {}", journal.processorModel);
+    println!("Verification result: {:?}", journal.attestation.result);
+    println!("Processor model (u8): {}", journal.attestation.processorModel);
     println!(
         "Trusted certs prefix length: {}",
-        journal.trustedCertsPrefixLen
+        journal.attestation.trustedCertsPrefixLen
     );
-    println!("Cert serial count: {}", journal.certSerials.len());
-    println!("Raw report bytes: {}", journal.rawReport.len());
+    println!("Cert serial count: {}", journal.attestation.certSerials.len());
+    println!("Raw report bytes: {}", journal.attestation.rawReport.len());
 }
 
 fn report_from_journal_hex(journal_hex: &str) -> anyhow::Result<Vec<u8>> {
     let journal_bytes = decode_hex_bytes(journal_hex)?;
     let journal = VerifierJournal::decode(&journal_bytes)
         .map_err(|err| anyhow!("Failed to decode verifier journal: {}", err))?;
-    let report_bytes = journal.rawReport.to_vec();
+    let report_bytes = journal.attestation.rawReport.to_vec();
     ensure_report_size(&report_bytes)?;
     Ok(report_bytes)
 }

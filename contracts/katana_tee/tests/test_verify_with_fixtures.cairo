@@ -71,8 +71,7 @@ fn deploy_amd_registry_live_mode() -> ContractAddress {
     let sp1_id = load_sp1_program_id();
 
     // Constructor: verifier_class_hash, sp1_program_id (u256), max_time_diff,
-    //              trusted_certs (array), processor_models (array), root_certs (array),
-    //              storage_commitment_proxy (0 = disabled)
+    //              trusted_certs (array), processor_models (array), root_certs (array)
     let mut calldata: Array<felt252> = array![
         GARAGA_CLASS_HASH, sp1_id.low_bits, sp1_id.high_bits,
         MAX_TIME_DIFF.into(), // trusted_certs array - EMPTY for live mode
@@ -81,7 +80,6 @@ fn deploy_amd_registry_live_mode() -> ContractAddress {
         // root_certs array (Genoa root cert hash)
         1,
         certs.genoa_ark_hash_low, certs.genoa_ark_hash_high,
-        0, // storage_commitment_proxy disabled
     ];
 
     let (contract_address, _) = contract.deploy(@calldata).unwrap();
@@ -109,18 +107,13 @@ fn deploy_katana_tee_and_storage_commitment_registry(
     let storage_commitment_registry = deploy_storage_commitment_registry();
     let m = load_measurement();
 
-    // Constructor calldata:
-    // registry_address, storage_commitment_registry, measurement (Bytes48: low, mid, high),
-    // fork_provider_url (ByteArray encoded as: full_words_len=0, pending_word, pending_len)
+    // Constructor: registry_address, storage_commitment_registry, measurement (Bytes48: low, mid, high)
     let mut calldata: Array<felt252> = array![];
     calldata.append(registry_address.into());
     calldata.append(storage_commitment_registry.into());
     calldata.append(m.low_bits);
     calldata.append(m.mid_bits);
     calldata.append(m.high_bits);
-    calldata.append(0);
-    calldata.append(0x68747470733a2f2f7270632e6578616d706c65);
-    calldata.append(19);
 
     let (katana_contract_address, _) = contract.deploy(@calldata).unwrap();
 
@@ -225,22 +218,22 @@ fn test_verify_and_update_state() {
     let state_root: felt252 = 0x4ff77ff86b29cd49b7c37d57fa7f1ea06d6c09145c4e18e82fb9667359f2c26;
     let block_hash: felt252 = 0x26198ccf53a6611cd2a6cab0906e98f7e7524ec163d266aec615ab2def91809;
     let block_number: u64 = 6149472;
-    let attestation_config_contract: ContractAddress = 0.try_into().unwrap();
-    let shard_id: felt252 = 0;
+    let fork_provider_url: ByteArray = "";
+    let fork_block_number: u64 = 0;
 
     // Start spying BEFORE the action
     let mut spy = spy_events();
 
     // events_commitment=0 for legacy fixtures (will fail with 4-field Poseidon mismatch
     // but test is #[ignore] and needs new fixtures anyway)
-    let (result, end_block_number) = katana_dispatcher
+    let (result, end_block_number, _event_game_contract, _event_shard_id) = katana_dispatcher
         .verify_and_update_state(
             sp1_proof,
             state_root,
             block_hash,
             block_number,
-            attestation_config_contract,
-            shard_id,
+            fork_provider_url,
+            fork_block_number,
         )
         .unwrap();
 

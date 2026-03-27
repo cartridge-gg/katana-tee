@@ -1,11 +1,11 @@
-use crate::tee_types::VerifierJournal;
+use crate::tee_types::DecodedJournal;
 
 #[starknet::interface]
 pub trait IAMDTeeRegistry<TContractState> {
     /// Verify a SP1 proof.
     fn verify_sp1_proof(
         ref self: TContractState, sp1_proof: Array<felt252>,
-    ) -> Result<VerifierJournal, felt252>;
+    ) -> Result<DecodedJournal, felt252>;
 }
 
 #[starknet::contract]
@@ -16,7 +16,7 @@ pub mod AMDTEERegistry {
     use starknet::{ClassHash, ContractAddress, SyscallResultTrait, get_block_timestamp};
     use crate::cert_cache::CertCacheComponent;
     use crate::journal_decode::decode_verifier_journal;
-    use crate::tee_types::{ProcessorType, VerificationResult, VerifierJournal};
+    use crate::tee_types::{DecodedJournal, ProcessorType, VerificationResult};
 
     // Embed the certificate cache component
     component!(path: CertCacheComponent, storage: cert_cache, event: CertCacheEvent);
@@ -74,18 +74,7 @@ pub mod AMDTEERegistry {
     impl AMDTEERegistryImpl of super::IAMDTeeRegistry<ContractState> {
         fn verify_sp1_proof(
             ref self: ContractState, sp1_proof: Array<felt252>,
-        ) -> Result<VerifierJournal, felt252> {
-            // Step 1: Call the Garaga SP1 Verifier to validate the proof cryptographically
-            // This verifies the Groth16 proof structure and cryptographic validity
-            //
-            // For library_call_syscall, the calldata must be the ABI-serialized parameters.
-            // The Garaga verifier expects `full_proof_with_hints: Span<felt252>`, which
-            // serializes as [length, elem0, elem1, ...]. We must serialize the array
-            // rather than just passing sp1_proof.span() which lacks the length prefix.
-
-            // println!("[AMDTEERegistry] Verifying SP1 proof");
-            // println!("[AMDTEERegistry] SP1 proof[0]: {:?}", *sp1_proof.at(0));
-            // println!("[AMDTEERegistry] SP1 proof[1]: {:?}", *sp1_proof.at(1));
+        ) -> Result<DecodedJournal, felt252> {
             let mut result_serialized = library_call_syscall(
                 self.verifier_class_hash.read(),
                 selector!("verify_sp1_groth16_proof_bn254"),
@@ -93,33 +82,28 @@ pub mod AMDTEERegistry {
             )
                 .unwrap_syscall();
 
-            // Step 2: Deserialize the verification result
-            // The verifier returns Result<(verification_key, public_inputs), error>
             let result = Serde::<
                 Result<(u256, Span<u256>), felt252>,
             >::deserialize(ref result_serialized)
                 .unwrap();
 
-            // Step 3: Check if cryptographic verification succeeded
             match result {
                 Result::Ok((
                     vk, public_inputs,
                 )) => {
-                    // Step 4: Verify this proof corresponds to our expected SP1 program
-                    // This ensures we only accept proofs for the specific computation we expect
                     assert(vk == self.sp1_program_id.read(), 'Wrong program');
 
                     let journal = decode_verifier_journal(public_inputs);
-                    // println!("[AMDTEERegistry] Journal: {:?}", journal);
-                    if journal.result != VerificationResult::Success {
+
+                    if journal.attestation.result != VerificationResult::Success {
                         return Result::Err('SP1 program returned an error');
                     }
-                    if journal.trusted_certs_prefix_len == 0 {
+                    if journal.attestation.trusted_certs_prefix_len == 0 {
                         return Result::Err('Trusted certs len must be >= 1');
                     }
 
                     let processor_model: ProcessorType = processor_type_from_u8(
-                        journal.processor_model,
+                        journal.attestation.processor_model,
                     )?;
 
                     let expected_root_cert = self.cert_cache.get_root_cert(processor_model);
@@ -127,8 +111,8 @@ pub mod AMDTEERegistry {
                         return Result::Err('Root cert not set for processor');
                     }
 
-                    let certs: Span<u256> = journal.certs.span();
-                    let trusted_len: usize = journal.trusted_certs_prefix_len.into();
+                    let certs: Span<u256> = journal.attestation.certs.span();
+                    let trusted_len: usize = journal.attestation.trusted_certs_prefix_len.into();
                     if certs.len() < trusted_len {
                         return Result::Err('Certificates array too short');
                     }
@@ -143,21 +127,19 @@ pub mod AMDTEERegistry {
                     }
 
                     let _current_timestamp = get_block_timestamp();
-                    // if journal.timestamp > current_timestamp {
+                    // if journal.attestation.timestamp > current_timestamp {
                     //     return Result::Err('Timestamp is in the future');
                     // }
-                    // if current_timestamp - journal.timestamp > self.max_time_diff.read() {
+                    // if current_timestamp - journal.attestation.timestamp > self.max_time_diff.read() {
                     //     return Result::Err('Timestamp is too old');
                     // }
 
-                    let trusted_len_u32: u32 = journal.trusted_certs_prefix_len.into();
+                    let trusted_len_u32: u32 = journal.attestation.trusted_certs_prefix_len.into();
                     self.cert_cache.cache_new_cert(certs, trusted_len_u32);
 
-                    // Return the journal for the verified computation
                     Result::Ok(journal)
                 },
                 Result::Err(error) => {
-                    // println!("[AMDTEERegistry] Error: {:?}", error);
                     Result::Err(error)
                 },
             }

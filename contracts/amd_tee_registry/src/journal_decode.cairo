@@ -1,4 +1,6 @@
-use crate::tee_types::{ATTESTATION_REPORT_SIZE_U32, VerificationResult, VerifierJournal};
+use crate::tee_types::{
+    ATTESTATION_REPORT_SIZE_U32, AttestationCore, DecodedJournal, ShardProof, VerificationResult,
+};
 
 const POW_32_U128: u128 = 0x100000000;
 const POW_64_U128: u128 = 0x10000000000000000;
@@ -25,76 +27,70 @@ pub fn u256_span_to_u32_array(words: Span<u256>) -> Array<u32> {
     output
 }
 
-/// Decode the Solidity-ABI `VerifierJournal` from SP1 public inputs.
+/// Decode the nested-ABI `VerifierJournal` from SP1 public inputs.
 ///
-/// Note: The journal is ABI-encoded as a struct with dynamic fields, which means
-/// it starts with a 32-byte offset pointer (0x20) before the actual data.
-/// We skip this offset and decode starting from the actual struct data.
-pub fn decode_verifier_journal(public_inputs: Span<u256>) -> VerifierJournal {
+/// ABI layout (after skipping outer 0x20 wrapper):
+///   Word 0:   offset to AttestationCore (= 224 = 7 * 32)
+///   Word 1-6: ShardProof inline (all fixed-size)
+///   Word 7+:  AttestationCore header (7 words) + dynamic data
+///
+/// AttestationCore header (offsets relative to word 7):
+///   Word 0: result, Word 1: timestamp, Word 2: processorModel,
+///   Word 3: rawReport offset, Word 4: certs offset, Word 5: certSerials offset,
+///   Word 6: trustedCertsPrefixLen
+pub fn decode_verifier_journal(public_inputs: Span<u256>) -> DecodedJournal {
     let words_u32 = u256_span_to_u32_array(public_inputs);
-    // Skip the first 8 u32 words (32 bytes) which is the ABI offset pointer
+    // Skip the first 8 u32 words (32 bytes) — ABI offset pointer (0x20)
     let data_start = 8_usize;
-    decode_verifier_journal_from_u32(
+    decode_journal_from_u32(
         words_u32.span().slice(data_start, words_u32.len() - data_start),
     )
 }
 
-fn decode_verifier_journal_from_u32(words: Span<u32>) -> VerifierJournal {
+fn decode_journal_from_u32(words: Span<u32>) -> DecodedJournal {
     assert(words.len() % 8 == 0, 'Invalid ABI length');
-    assert(words.len() >= 7 * 8, 'ABI too short');
+    // Minimum: 7 (outer head) + 7 (attestation head) = 14 words
+    assert(words.len() >= 14 * 8, 'ABI too short');
 
-    let result_word = read_word_u32(words, 0);
-    let timestamp_word = read_word_u32(words, 1);
-    let processor_word = read_word_u32(words, 2);
-    let raw_report_offset_word = read_word_u32(words, 3);
-    let certs_offset_word = read_word_u32(words, 4);
-    let cert_serials_offset_word = read_word_u32(words, 5);
-    let trusted_prefix_word = read_word_u32(words, 6);
+    // ── Outer head: offset + ShardProof inline ──────────────────────────
+    let attestation_offset_bytes = word_to_u64(read_word_u32(words, 0));
+    assert(attestation_offset_bytes == 224, 'Unexpected attestation offset');
+    let attestation_start: usize = 7; // 224 / 32
 
-    let result = verification_result_from_u8(word_to_u8(result_word));
-    let timestamp = word_to_u64(timestamp_word);
-    let processor_model = word_to_u8(processor_word);
-    let trusted_certs_prefix_len = word_to_u8(trusted_prefix_word);
-
-    let raw_report_offset_bytes = word_to_u64(raw_report_offset_word);
-    let certs_offset_bytes = word_to_u64(certs_offset_word);
-    let cert_serials_offset_bytes = word_to_u64(cert_serials_offset_word);
-    let (storage_commitment, events_commitment, fork_block_number, end_block_number) = match raw_report_offset_bytes {
-        // Legacy 7-slot head used by older fixture proofs.
-        224 => (u256 { low: 0, high: 0 }, 0, 0, 0),
-        // Current 10-slot head: storageCommitment + forkBlockNumber + endBlockNumber.
-        320 => {
-            assert(words.len() >= 10 * 8, 'ABI too short');
-            (
-                word_to_u256(read_word_u32(words, 7)),
-                0,
-                word_to_u64(read_word_u32(words, 8)),
-                word_to_u64(read_word_u32(words, 9)),
-            )
-        },
-        // New 11-slot head: storageCommitment + eventsCommitment + forkBlockNumber + endBlockNumber.
-        352 => {
-            assert(words.len() >= 11 * 8, 'ABI too short');
-            (
-                word_to_u256(read_word_u32(words, 7)),
-                u256_to_felt(word_to_u256(read_word_u32(words, 8))),
-                word_to_u64(read_word_u32(words, 9)),
-                word_to_u64(read_word_u32(words, 10)),
-            )
-        },
-        _ => panic!("Unsupported journal layout"),
+    let shard = ShardProof {
+        storage_commitment: u256_to_felt(word_to_u256(read_word_u32(words, 1))),
+        events_commitment: u256_to_felt(word_to_u256(read_word_u32(words, 2))),
+        fork_block_number: word_to_u64(read_word_u32(words, 3)),
+        end_block_number: word_to_u64(read_word_u32(words, 4)),
+        event_game_contract: u256_to_felt(word_to_u256(read_word_u32(words, 5))),
+        event_shard_id: u256_to_felt(word_to_u256(read_word_u32(words, 6))),
     };
 
-    let raw_report_offset_words: usize = (raw_report_offset_bytes / 32).try_into().unwrap();
-    let certs_offset_words: usize = (certs_offset_bytes / 32).try_into().unwrap();
-    let cert_serials_offset_words: usize = (cert_serials_offset_bytes / 32).try_into().unwrap();
+    // ── AttestationCore header (at word 7) ──────────────────────────────
+    let result = verification_result_from_u8(
+        word_to_u8(read_word_u32(words, attestation_start)),
+    );
+    let timestamp = word_to_u64(read_word_u32(words, attestation_start + 1));
+    let processor_model = word_to_u8(read_word_u32(words, attestation_start + 2));
 
-    let raw_report_len_bytes = word_to_u64(read_word_u32(words, raw_report_offset_words));
+    // Dynamic field offsets (relative to AttestationCore start = word 7)
+    let raw_report_rel = word_to_u64(read_word_u32(words, attestation_start + 3));
+    let certs_rel = word_to_u64(read_word_u32(words, attestation_start + 4));
+    let cert_serials_rel = word_to_u64(read_word_u32(words, attestation_start + 5));
+    let trusted_certs_prefix_len = word_to_u8(read_word_u32(words, attestation_start + 6));
+
+    // Convert relative byte offsets to absolute word indices
+    let raw_report_abs: usize = attestation_start + (raw_report_rel / 32).try_into().unwrap();
+    let certs_abs: usize = attestation_start + (certs_rel / 32).try_into().unwrap();
+    let cert_serials_abs: usize = attestation_start + (cert_serials_rel / 32).try_into().unwrap();
+
+    // ── Raw report (dynamic bytes) ──────────────────────────────────────
+    let raw_report_len_bytes = word_to_u64(read_word_u32(words, raw_report_abs));
     assert(raw_report_len_bytes % 4 == 0, 'Raw report length misaligned');
     let raw_report_len_u32: usize = (raw_report_len_bytes / 4).try_into().unwrap();
     assert(raw_report_len_u32 == ATTESTATION_REPORT_SIZE_U32.into(), 'Unexpected report size');
 
-    let raw_report_start_u32 = (raw_report_offset_words + 1) * 8;
+    let raw_report_start_u32 = (raw_report_abs + 1) * 8;
     let mut raw_report_words: Array<u32> = array![];
     let mut i: usize = 0;
     while i < raw_report_len_u32 {
@@ -103,38 +99,39 @@ fn decode_verifier_journal_from_u32(words: Span<u32>) -> VerifierJournal {
         i += 1;
     }
 
-    let certs_len = word_to_u64(read_word_u32(words, certs_offset_words));
+    // ── Certs (dynamic bytes32[]) ───────────────────────────────────────
+    let certs_len = word_to_u64(read_word_u32(words, certs_abs));
     let certs_len_usize: usize = certs_len.try_into().unwrap();
     let mut certs: Array<u256> = array![];
     let mut j: usize = 0;
     while j < certs_len_usize {
-        let word = read_word_u32(words, certs_offset_words + 1 + j);
+        let word = read_word_u32(words, certs_abs + 1 + j);
         certs.append(word_to_u256(word));
         j += 1;
     }
 
-    let cert_serials_len = word_to_u64(read_word_u32(words, cert_serials_offset_words));
+    // ── Cert serials (dynamic uint160[]) ────────────────────────────────
+    let cert_serials_len = word_to_u64(read_word_u32(words, cert_serials_abs));
     let cert_serials_len_usize: usize = cert_serials_len.try_into().unwrap();
     let mut cert_serials: Array<felt252> = array![];
     let mut k: usize = 0;
     while k < cert_serials_len_usize {
-        let word = read_word_u32(words, cert_serials_offset_words + 1 + k);
+        let word = read_word_u32(words, cert_serials_abs + 1 + k);
         cert_serials.append(u256_to_felt(word_to_u256(word)));
         k += 1;
     }
 
-    VerifierJournal {
-        result,
-        timestamp,
-        processor_model,
-        raw_report: raw_report_words.span(),
-        certs,
-        cert_serials,
-        trusted_certs_prefix_len,
-        storage_commitment: u256_to_felt(storage_commitment),
-        events_commitment,
-        fork_block_number,
-        end_block_number,
+    DecodedJournal {
+        attestation: AttestationCore {
+            result,
+            timestamp,
+            processor_model,
+            raw_report: raw_report_words.span(),
+            certs,
+            cert_serials,
+            trusted_certs_prefix_len,
+        },
+        shard,
     }
 }
 

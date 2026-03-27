@@ -37,8 +37,8 @@ fn verify_reports_with_kds() -> anyhow::Result<()> {
         print_report(&report, &fixture_name);
         print_journal(&journal);
 
-        assert!(matches!(journal.result, VerificationResult::Success));
-        assert_eq!(journal.rawReport.len(), report_bytes.len());
+        assert!(matches!(journal.attestation.result, VerificationResult::Success));
+        assert_eq!(journal.attestation.rawReport.len(), report_bytes.len());
         println!("\n\n=========================================\n\n");
     }
 

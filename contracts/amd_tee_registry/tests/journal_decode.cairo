@@ -5,55 +5,80 @@ fn u256_from_u128(value: u128) -> u256 {
     u256 { low: value, high: 0 }
 }
 
+/// Nested ABI layout (after 0x20 wrapper):
+///   Word 0:   offset to AttestationCore (= 224 = 7*32)
+///   Word 1-6: ShardProof inline
+///   Word 7-13: AttestationCore header
+///   Word 14+: dynamic data (rawReport, certs, certSerials)
+///
+/// AttestationCore dynamic offsets are relative to word 7:
+///   rawReport:   224 bytes  → absolute word 14  (7 + 224/32 = 14)
+///   certs:       1440 bytes → absolute word 52  (7 + 1440/32 = 52)  [14 + 1(len) + 37(data) = 52]
+///   certSerials: 1504 bytes → absolute word 54  (7 + 1504/32 = 54)  [52 + 1(len) + 1(data) = 54]
 #[test]
-fn test_decode_verifier_journal_minimal() {
+fn test_decode_nested_journal() {
     let mut words: Array<u256> = array![];
 
-    // ABI offset pointer (required by decode_verifier_journal)
-    words.append(u256_from_u128(0x20)); // offset = 32 bytes
+    // ABI wrapper
+    words.append(u256_from_u128(0x20));
 
-    // Head (11 words)
-    words.append(u256_from_u128(0)); // slot 0: result = Success
-    words.append(u256_from_u128(42)); // slot 1: timestamp
-    words.append(u256_from_u128(1)); // slot 2: processorModel
-    words.append(u256_from_u128(352)); // slot 3: rawReport offset (11*32 = 352)
-    words.append(u256_from_u128(1568)); // slot 4: certs offset (352 + 1216)
-    words.append(u256_from_u128(1632)); // slot 5: certSerials offset (1568 + 64)
-    words.append(u256_from_u128(2)); // slot 6: trustedCertsPrefixLen
-    words.append(u256_from_u128(0)); // slot 7: storageCommitment
-    words.append(u256_from_u128(0x1234)); // slot 8: eventsCommitment
-    words.append(u256_from_u128(100)); // slot 9: forkBlockNumber
-    words.append(u256_from_u128(200)); // slot 10: endBlockNumber
+    // ── Outer head ──
+    words.append(u256_from_u128(224)); // offset to AttestationCore
 
-    // rawReport block
-    words.append(u256_from_u128(1184)); // length in bytes
+    // ShardProof inline (words 1-6)
+    words.append(u256_from_u128(0xabc));  // storageCommitment
+    words.append(u256_from_u128(0x1234)); // eventsCommitment
+    words.append(u256_from_u128(100));    // forkBlockNumber
+    words.append(u256_from_u128(200));    // endBlockNumber
+    words.append(u256_from_u128(0x42));   // eventGameContract
+    words.append(u256_from_u128(0x99));   // eventShardId
+
+    // ── AttestationCore header (words 7-13) ──
+    words.append(u256_from_u128(0));    // result = Success
+    words.append(u256_from_u128(42));   // timestamp
+    words.append(u256_from_u128(1));    // processorModel = Genoa
+    words.append(u256_from_u128(224));  // rawReport offset (relative to word 7)
+    words.append(u256_from_u128(1440)); // certs offset (relative)
+    words.append(u256_from_u128(1504)); // certSerials offset (relative)
+    words.append(u256_from_u128(2));    // trustedCertsPrefixLen
+
+    // ── rawReport at word 14 ──
+    words.append(u256_from_u128(1184)); // length in bytes (296 u32 = 1184 bytes)
     let mut i: usize = 0;
-    while i < 37 {
+    while i < 37 { // ceil(1184/32) = 37 words
         words.append(u256_from_u128(0));
         i += 1;
     }
 
-    // certs block
-    words.append(u256_from_u128(1)); // length
-    words.append(u256_from_u128(0x1234));
+    // ── certs at word 52 ──
+    words.append(u256_from_u128(1));      // length = 1
+    words.append(u256_from_u128(0x5678)); // cert[0]
 
-    // certSerials block
-    words.append(u256_from_u128(1)); // length
-    words.append(u256_from_u128(0xdead));
+    // ── certSerials at word 54 ──
+    words.append(u256_from_u128(1));      // length = 1
+    words.append(u256_from_u128(0xdead)); // serial[0]
 
     let journal = decode_verifier_journal(words.span());
 
-    assert(journal.result == VerificationResult::Success, 'Wrong result');
-    assert(journal.timestamp == 42, 'Wrong timestamp');
-    assert(journal.processor_model == 1, 'Wrong processor model');
-    assert(journal.trusted_certs_prefix_len == 2, 'Wrong trusted prefix length');
-    assert(journal.raw_report.len() == ATTESTATION_REPORT_SIZE_U32.into(), 'Wrong raw report size');
-    assert(journal.certs.len() == 1, 'Wrong cert count');
-    assert(*journal.certs.at(0) == u256_from_u128(0x1234), 'Wrong cert value');
-    assert(journal.cert_serials.len() == 1, 'Wrong serial count');
-    assert(*journal.cert_serials.at(0) == 0xdead, 'Wrong serial value');
-    assert(journal.storage_commitment == 0, 'Wrong storage commitment');
-    assert(journal.events_commitment == 0x1234, 'Wrong events commitment');
-    assert(journal.fork_block_number == 100, 'Wrong fork block number');
-    assert(journal.end_block_number == 200, 'Wrong end block number');
+    // ShardProof
+    assert(journal.shard.storage_commitment == 0xabc, 'Wrong storage commitment');
+    assert(journal.shard.events_commitment == 0x1234, 'Wrong events commitment');
+    assert(journal.shard.fork_block_number == 100, 'Wrong fork block number');
+    assert(journal.shard.end_block_number == 200, 'Wrong end block number');
+    assert(journal.shard.event_game_contract == 0x42, 'Wrong event game contract');
+    assert(journal.shard.event_shard_id == 0x99, 'Wrong event shard id');
+
+    // AttestationCore
+    assert(journal.attestation.result == VerificationResult::Success, 'Wrong result');
+    assert(journal.attestation.timestamp == 42, 'Wrong timestamp');
+    assert(journal.attestation.processor_model == 1, 'Wrong processor model');
+    assert(journal.attestation.trusted_certs_prefix_len == 2, 'Wrong trusted prefix');
+    assert(
+        journal.attestation.raw_report.len() == ATTESTATION_REPORT_SIZE_U32.into(),
+        'Wrong raw report size',
+    );
+    assert(journal.attestation.certs.len() == 1, 'Wrong cert count');
+    assert(*journal.attestation.certs.at(0) == u256_from_u128(0x5678), 'Wrong cert value');
+    assert(journal.attestation.cert_serials.len() == 1, 'Wrong serial count');
+    assert(*journal.attestation.cert_serials.at(0) == 0xdead, 'Wrong serial value');
 }

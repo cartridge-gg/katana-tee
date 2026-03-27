@@ -83,32 +83,34 @@ pub struct VerifierInput {
     pub vek_der_chain: Array<Span<u32>>,
 }
 
-/// Journal output from the verifier
+/// TEE attestation certificate chain verification results.
 #[derive(Drop, Debug, PartialEq, Serde)]
-pub struct VerifierJournal {
-    /// Verification result
+pub struct AttestationCore {
     pub result: VerificationResult,
-    /// Unix timestamp
     pub timestamp: u64,
-    /// Processor model (can be converted to ProcessorType)
     pub processor_model: u8,
-    /// Raw attestation report as u32 words
     pub raw_report: Span<u32>,
-    /// Certificate hashes (bytes32 = u256)
     pub certs: Array<u256>,
-    /// Certificate serial numbers (uint160 fits in felt252)
     pub cert_serials: Array<felt252>,
-    /// Length of trusted certificates prefix
     pub trusted_certs_prefix_len: u8,
-    /// Commitment to verified storage. 0 when no storage proof.
+}
+
+/// SP1-proved shard settlement data.
+#[derive(Drop, Debug, PartialEq, Serde)]
+pub struct ShardProof {
     pub storage_commitment: felt252,
-    /// Event root carried through the journal. When an event proof is present, SP1
-    /// verified inclusion against this exact root.
     pub events_commitment: felt252,
-    /// Fork block number (0 = non-fork mode).
     pub fork_block_number: u64,
-    /// Shard end block number where ShardFinished event was proven (0 = no event proof).
     pub end_block_number: u64,
+    pub event_game_contract: felt252,
+    pub event_shard_id: felt252,
+}
+
+/// Decoded SP1 journal combining attestation and shard proof data.
+#[derive(Drop, Debug, PartialEq, Serde)]
+pub struct DecodedJournal {
+    pub attestation: AttestationCore,
+    pub shard: ShardProof,
 }
 
 // ============================================================================

@@ -22,11 +22,6 @@ const TEST_MEASUREMENT_LOW: u128 = 0x11112222333344445555666677778888;
 const TEST_MEASUREMENT_MID: u128 = 0x9999aaaabbbbccccddddeeeeffff0000;
 const TEST_MEASUREMENT_HIGH: u128 = 0x1234567890abcdef1234567890abcdef;
 
-const TEST_FORK_PROVIDER_URL_WORD: felt252 = 0x68747470733a2f2f7270632e6578616d706c65;
-const TEST_FORK_PROVIDER_URL_LEN: felt252 = 19;
-const WRONG_FORK_PROVIDER_URL_WORD: felt252 = 0x68747470733a2f2f7270632e626164;
-const WRONG_FORK_PROVIDER_URL_LEN: felt252 = 15;
-const TEST_SHARD_ID: felt252 = 0x10;
 
 fn test_measurement() -> Bytes48 {
     Bytes48 {
@@ -106,12 +101,6 @@ fn build_mock_raw_report() -> Array<u32> {
     raw_report
 }
 
-fn append_short_byte_array(ref calldata: Array<felt252>, pending_word: felt252, pending_len: felt252) {
-    calldata.append(0);
-    calldata.append(pending_word);
-    calldata.append(pending_len);
-}
-
 #[starknet::contract]
 mod MockAmdTeeRegistry {
     use super::{
@@ -119,7 +108,9 @@ mod MockAmdTeeRegistry {
         TEST_STORAGE_COMMITMENT, build_mock_raw_report,
     };
     use amd_tee_registry::tee_registry::IAMDTeeRegistry;
-    use amd_tee_registry::tee_types::{VerificationResult, VerifierJournal};
+    use amd_tee_registry::tee_types::{
+        AttestationCore, DecodedJournal, ShardProof, VerificationResult,
+    };
 
     #[storage]
     struct Storage {}
@@ -131,56 +122,37 @@ mod MockAmdTeeRegistry {
     impl MockAmdTeeRegistryImpl of IAMDTeeRegistry<ContractState> {
         fn verify_sp1_proof(
             ref self: ContractState, sp1_proof: Array<felt252>,
-        ) -> Result<VerifierJournal, felt252> {
+        ) -> Result<DecodedJournal, felt252> {
             let _ = sp1_proof;
             let raw_report = build_mock_raw_report();
             let certs: Array<u256> = array![];
             let cert_serials: Array<felt252> = array![];
 
             Result::Ok(
-                VerifierJournal {
-                    result: VerificationResult::Success,
-                    timestamp: 0,
-                    processor_model: 1,
-                    raw_report: raw_report.span(),
-                    certs,
-                    cert_serials,
-                    trusted_certs_prefix_len: 0,
-                    storage_commitment: TEST_STORAGE_COMMITMENT,
-                    events_commitment: TEST_EVENTS_COMMITMENT,
-                    fork_block_number: TEST_FORK_BLOCK_NUMBER,
-                    end_block_number: TEST_END_BLOCK_NUMBER,
+                DecodedJournal {
+                    attestation: AttestationCore {
+                        result: VerificationResult::Success,
+                        timestamp: 0,
+                        processor_model: 1,
+                        raw_report: raw_report.span(),
+                        certs,
+                        cert_serials,
+                        trusted_certs_prefix_len: 0,
+                    },
+                    shard: ShardProof {
+                        storage_commitment: TEST_STORAGE_COMMITMENT,
+                        events_commitment: TEST_EVENTS_COMMITMENT,
+                        fork_block_number: TEST_FORK_BLOCK_NUMBER,
+                        end_block_number: TEST_END_BLOCK_NUMBER,
+                        event_game_contract: 0,
+                        event_shard_id: 0,
+                    },
                 },
             )
         }
     }
 }
 
-#[starknet::contract]
-mod MockShardAttestationConfig {
-    use katana_tee::IShardAttestationConfig;
-    use starknet::storage::{StoragePointerReadAccess, StoragePointerWriteAccess};
-
-    #[storage]
-    struct Storage {
-        fork_block_number: u64,
-    }
-
-    #[constructor]
-    fn constructor(ref self: ContractState, fork_block_number: u64) {
-        self.fork_block_number.write(fork_block_number);
-    }
-
-    #[abi(embed_v0)]
-    impl MockShardAttestationConfigImpl of IShardAttestationConfig<ContractState> {
-        fn get_shard_attestation_fork_block_number(
-            self: @ContractState, shard_id: felt252,
-        ) -> u64 {
-            let _ = shard_id;
-            self.fork_block_number.read()
-        }
-    }
-}
 
 #[starknet::contract]
 mod MockStorageCommitment {
@@ -262,13 +234,6 @@ fn deploy_mock_registry() -> ContractAddress {
     contract_address
 }
 
-fn deploy_mock_attestation_config(fork_block_number: u64) -> ContractAddress {
-    let contract = declare("MockShardAttestationConfig").unwrap().contract_class();
-    let calldata: Array<felt252> = array![fork_block_number.into()];
-    let (contract_address, _) = contract.deploy(@calldata).unwrap();
-    contract_address
-}
-
 fn deploy_storage_commitment_registry() -> ContractAddress {
     let contract = declare("MockStorageCommitment").unwrap().contract_class();
     let calldata: Array<felt252> = array![];
@@ -277,7 +242,7 @@ fn deploy_storage_commitment_registry() -> ContractAddress {
 }
 
 fn deploy_katana_tee_and_storage_commitment_registry(
-    registry_address: ContractAddress, fork_provider_url_word: felt252, fork_provider_url_len: felt252,
+    registry_address: ContractAddress,
 ) -> (ContractAddress, ContractAddress) {
     let contract = declare("KatanaTee").unwrap().contract_class();
     let storage_commitment_registry = deploy_storage_commitment_registry();
@@ -289,7 +254,6 @@ fn deploy_katana_tee_and_storage_commitment_registry(
     calldata.append(measurement.low_bits.into());
     calldata.append(measurement.mid_bits.into());
     calldata.append(measurement.high_bits.into());
-    append_short_byte_array(ref calldata, fork_provider_url_word, fork_provider_url_len);
 
     let (katana_contract_address, _) = contract.deploy(@calldata).unwrap();
 
@@ -301,24 +265,23 @@ fn test_verify_and_update_state_full_flow_with_mocks() {
     let registry_address = deploy_mock_registry();
     let (katana_address, storage_commitment_registry_address) =
         deploy_katana_tee_and_storage_commitment_registry(
-            registry_address, TEST_FORK_PROVIDER_URL_WORD, TEST_FORK_PROVIDER_URL_LEN,
+            registry_address,
         );
-    let attestation_config_contract = deploy_mock_attestation_config(TEST_FORK_BLOCK_NUMBER);
-
     let katana_dispatcher = IKatanaTeeDispatcher { contract_address: katana_address };
     let storage_commitment_dispatcher = IStorageCommitmentDispatcher {
         contract_address: storage_commitment_registry_address,
     };
 
     let sp1_proof: Array<felt252> = array![];
-    let (result, end_block_number) = katana_dispatcher
+    let fork_provider_url: ByteArray = "https://rpc.example";
+    let (result, end_block_number, _event_game_contract, _event_shard_id) = katana_dispatcher
         .verify_and_update_state(
             sp1_proof,
             TEST_STATE_ROOT,
             TEST_BLOCK_HASH,
             TEST_BLOCK_NUMBER,
-            attestation_config_contract,
-            TEST_SHARD_ID,
+            fork_provider_url,
+            TEST_FORK_BLOCK_NUMBER,
         )
         .unwrap();
 
@@ -342,21 +305,22 @@ fn test_verify_and_update_state_full_flow_with_mocks() {
 fn test_verify_and_update_state_rejects_wrong_fork_block_policy() {
     let registry_address = deploy_mock_registry();
     let (katana_address, _) = deploy_katana_tee_and_storage_commitment_registry(
-        registry_address, TEST_FORK_PROVIDER_URL_WORD, TEST_FORK_PROVIDER_URL_LEN,
+        registry_address,
     );
-    let attestation_config_contract = deploy_mock_attestation_config(TEST_FORK_BLOCK_NUMBER + 1);
 
     let katana_dispatcher = IKatanaTeeDispatcher { contract_address: katana_address };
     let sp1_proof: Array<felt252> = array![];
+    let fork_provider_url: ByteArray = "https://rpc.example";
 
+    // Pass wrong fork_block_number (mock returns TEST_FORK_BLOCK_NUMBER=42, we pass 43)
     katana_dispatcher
         .verify_and_update_state(
             sp1_proof,
             TEST_STATE_ROOT,
             TEST_BLOCK_HASH,
             TEST_BLOCK_NUMBER,
-            attestation_config_contract,
-            TEST_SHARD_ID,
+            fork_provider_url,
+            TEST_FORK_BLOCK_NUMBER + 1,
         )
         .unwrap();
 }
@@ -366,12 +330,13 @@ fn test_verify_and_update_state_rejects_wrong_fork_block_policy() {
 fn test_verify_and_update_state_rejects_wrong_fork_provider_policy() {
     let registry_address = deploy_mock_registry();
     let (katana_address, _) = deploy_katana_tee_and_storage_commitment_registry(
-        registry_address, WRONG_FORK_PROVIDER_URL_WORD, WRONG_FORK_PROVIDER_URL_LEN,
+        registry_address,
     );
-    let attestation_config_contract = deploy_mock_attestation_config(TEST_FORK_BLOCK_NUMBER);
 
     let katana_dispatcher = IKatanaTeeDispatcher { contract_address: katana_address };
     let sp1_proof: Array<felt252> = array![];
+    // Wrong URL: mock report_data was built with "https://rpc.example", this will mismatch
+    let fork_provider_url: ByteArray = "https://rpc.bad";
 
     katana_dispatcher
         .verify_and_update_state(
@@ -379,8 +344,8 @@ fn test_verify_and_update_state_rejects_wrong_fork_provider_policy() {
             TEST_STATE_ROOT,
             TEST_BLOCK_HASH,
             TEST_BLOCK_NUMBER,
-            attestation_config_contract,
-            TEST_SHARD_ID,
+            fork_provider_url,
+            TEST_FORK_BLOCK_NUMBER,
         )
         .unwrap();
 }
