@@ -85,9 +85,14 @@ pub struct TeeQuoteResponse {
     pub fork_block_number: Option<u64>,
 
     /// Merkle root of all events in the attested block (hex-encoded Felt).
-    /// Included in report_data: Poseidon(state_root, block_hash, fork_block, events_commitment).
+    /// Included in report_data: Poseidon(state_root, block_hash, fork_block, events_commitment, fork_state_root).
     #[serde(default)]
     pub events_commitment: Option<String>,
+
+    /// State root at the fork block (hex-encoded Felt).
+    /// Attested by TEE in report_data so SP1 can verify initial storage proofs.
+    #[serde(default)]
+    pub fork_state_root: Option<String>,
 }
 
 impl TeeQuoteResponse {

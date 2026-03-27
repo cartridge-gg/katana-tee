@@ -95,6 +95,42 @@ pub struct StorageProofParams {
     pub fork_block_number: u64,
 }
 
+/// Optional initial storage proof at fork block (S1 soundness fix).
+/// Proves Add CRDT initial_values existed at fork time. Same structure as
+/// StorageProofParams but against the fork block's state root.
+#[derive(Debug, Clone, Default)]
+pub struct InitialStorageProofParams {
+    pub fork_state_root: B256,
+    pub fork_contracts_tree_root: B256,
+    pub fork_classes_tree_root: B256,
+    pub fork_contracts_proof_nodes: Vec<Bytes>,
+    pub fork_contract_storage_root: B256,
+    pub fork_contract_class_hash: B256,
+    pub fork_contract_leaf_nonce: u64,
+    pub keys: Vec<Bytes>,
+    pub values: Vec<Bytes>,
+    pub proof_nodes: Vec<Bytes>,
+    pub nonce: u64,
+}
+
+/// TEE attestation base parameters (always required).
+#[derive(Debug, Clone)]
+pub struct AttestationParams {
+    pub timestamp: u64,
+    pub raw_report: Bytes,
+    pub vek_der_chain: Vec<Bytes>,
+    pub trusted_certs_prefix_len: u8,
+}
+
+/// All shard proof parameters (all-or-nothing with attestation).
+/// If present, SP1 verifies event inclusion + storage proof + optional initial proof.
+#[derive(Debug, Clone)]
+pub struct ShardInputParams {
+    pub storage: StorageProofParams,
+    pub event: EventProofParams,
+    pub initial_storage: Option<InitialStorageProofParams>,
+}
+
 /// Parameters for event inclusion proof (C2: proves shard ending).
 /// Verifies a specific event is in the block's events_commitment Merkle root.
 #[derive(Debug, Clone)]
@@ -304,14 +340,21 @@ impl<B: Sp1Backend> AmdAttestationProver<B> {
         let proof = tokio::task::spawn_blocking(move || {
             let prover = AmdSevSnpProver::new(sdk_config, None);
 
-            let input = prepare_verifier_input_with_storage(
+            let attestation = AttestationParams {
                 timestamp,
-                Bytes::from(report_bytes),
+                raw_report: Bytes::from(report_bytes),
                 vek_der_chain,
-                trusted_prefix_len,
-                storage,
-                event_proof,
-            );
+                trusted_certs_prefix_len: trusted_prefix_len,
+            };
+            let shard = match (storage, event_proof) {
+                (Some(storage), Some(event)) => Some(ShardInputParams {
+                    storage,
+                    event,
+                    initial_storage: None,
+                }),
+                _ => None,
+            };
+            let input = prepare_verifier_input(attestation, shard);
 
             let raw_proof = prover
                 .verifier
@@ -380,53 +423,58 @@ fn processor_type_to_u8(value: ProcessorType) -> Result<u8, Error> {
     Ok(result)
 }
 
-/// Builds `VerifierInput` for attestation; optionally attaches storage proof data.
-/// Storage logic lives here (and in callers like sharding_operator), not in the SDK prover.
-pub fn prepare_verifier_input_with_storage(
-    timestamp: u64,
-    raw_report: Bytes,
-    vek_der_chain: Vec<Bytes>,
-    trusted_certs_prefix_len: u8,
-    storage: Option<StorageProofParams>,
-    event_proof: Option<EventProofParams>,
+/// Build `VerifierInput` from attestation params + optional shard proof bundle.
+///
+/// Two modes:
+/// - Attestation-only: `shard = None` — verifies TEE report only
+/// - Full sharding: `shard = Some(...)` — verifies report + event + storage + optional initial
+pub fn prepare_verifier_input(
+    attestation: AttestationParams,
+    shard: Option<ShardInputParams>,
 ) -> VerifierInput {
     let mut input = VerifierInput {
-        timestamp,
-        trustedCertsPrefixLen: trusted_certs_prefix_len,
-        rawReport: raw_report,
-        vekDerChain: vek_der_chain,
-        // Global state verification
+        timestamp: attestation.timestamp,
+        trustedCertsPrefixLen: attestation.trusted_certs_prefix_len,
+        rawReport: attestation.raw_report,
+        vekDerChain: attestation.vek_der_chain,
         globalStateRoot: B256::ZERO,
         contractsTreeRoot: B256::ZERO,
         classesTreeRoot: B256::ZERO,
-        // Contracts tree proof
         contractsProofNodes: vec![],
         contractStorageRoot: B256::ZERO,
         contractClassHash: B256::ZERO,
         contractLeafNonce: 0,
-        // Storage proof
         storageKeys: vec![],
         storageValues: vec![],
         storageProofNodes: vec![],
-        // Replay protection
         contractAddress: B256::ZERO,
         nonce: 0,
-        // Fork block (set by caller if in fork mode)
         forkBlockNumber: 0,
-        // Event proof (empty = no event proof)
         eventsCommitment: B256::ZERO,
         eventHash: B256::ZERO,
         eventIndex: 0,
         eventsCount: 0,
         eventMerkleProof: vec![],
         endBlockNumber: 0,
-        // Event content (empty = no content verification)
         eventTxHash: B256::ZERO,
         eventFromAddress: B256::ZERO,
         eventKeys: vec![],
         eventData: vec![],
+        forkStateRoot: B256::ZERO,
+        forkContractsTreeRoot: B256::ZERO,
+        forkClassesTreeRoot: B256::ZERO,
+        forkContractsProofNodes: vec![],
+        forkContractStorageRoot: B256::ZERO,
+        forkContractClassHash: B256::ZERO,
+        forkContractLeafNonce: 0,
+        initialKeys: vec![],
+        initialValues: vec![],
+        initialProofNodes: vec![],
+        initialNonce: 0,
     };
-    if let Some(s) = storage {
+
+    if let Some(shard) = shard {
+        let s = shard.storage;
         input.globalStateRoot = s.global_state_root;
         input.contractsTreeRoot = s.contracts_tree_root;
         input.classesTreeRoot = s.classes_tree_root;
@@ -440,8 +488,8 @@ pub fn prepare_verifier_input_with_storage(
         input.contractAddress = s.contract_address;
         input.nonce = s.nonce;
         input.forkBlockNumber = s.fork_block_number;
-    }
-    if let Some(e) = event_proof {
+
+        let e = shard.event;
         input.eventsCommitment = e.events_commitment;
         input.eventHash = e.event_hash;
         input.eventIndex = e.event_index;
@@ -452,7 +500,22 @@ pub fn prepare_verifier_input_with_storage(
         input.eventFromAddress = e.event_from_address;
         input.eventKeys = e.event_keys;
         input.eventData = e.event_data;
+
+        if let Some(i) = shard.initial_storage {
+            input.forkStateRoot = i.fork_state_root;
+            input.forkContractsTreeRoot = i.fork_contracts_tree_root;
+            input.forkClassesTreeRoot = i.fork_classes_tree_root;
+            input.forkContractsProofNodes = i.fork_contracts_proof_nodes;
+            input.forkContractStorageRoot = i.fork_contract_storage_root;
+            input.forkContractClassHash = i.fork_contract_class_hash;
+            input.forkContractLeafNonce = i.fork_contract_leaf_nonce;
+            input.initialKeys = i.keys;
+            input.initialValues = i.values;
+            input.initialProofNodes = i.proof_nodes;
+            input.initialNonce = i.nonce;
+        }
     }
+
     input
 }
 
