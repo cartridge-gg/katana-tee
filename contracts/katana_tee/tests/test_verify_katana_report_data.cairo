@@ -195,3 +195,38 @@ fn test_verify_katana_report_data_limb3_nonzero() {
 
     verify_katana_report_data(report_data, 0x123, 0x456, 0, 0x0, 0, zero_u256());
 }
+
+// ── Golden vector: cross-language schema guard ──────────────────────────
+//
+// This test uses the SAME inputs and SAME expected hash as:
+//   - sharding_operator/build.rs (compile-time check)
+//   - sharding_operator/src/shard/verification.rs (Rust test)
+//
+// If you change the Poseidon schema (add/remove/reorder elements),
+// you MUST update ALL three locations.
+//
+// Schema: Poseidon([state_root, block_hash, fork_block_number, events_commitment, fork_state_root])
+// Inputs: [0x111, 0x222, 42, 0x333, 0x444]
+
+#[test]
+fn test_report_data_commitment_golden_vector() {
+    let hash = poseidon_hash_span(
+        array![0x111, 0x222, 42, 0x333, 0x444].span(),
+    );
+    assert(
+        hash == 0x036d2c92ced99025d38649dd6b839e49a96e1a5d7e1db36eb5d3493aee3c249b,
+        'golden vector mismatch',
+    );
+}
+
+/// Schema guard: 5-element hash must differ from 4-element (old schema).
+#[test]
+fn test_golden_vector_5_elements_differs_from_4() {
+    let hash_5 = poseidon_hash_span(
+        array![0x111, 0x222, 42, 0x333, 0x444].span(),
+    );
+    let hash_4 = poseidon_hash_span(
+        array![0x111, 0x222, 42, 0x333].span(),
+    );
+    assert(hash_5 != hash_4, '5elem must differ from 4elem');
+}

@@ -93,6 +93,9 @@ pub struct StorageProofParams {
     pub nonce: u64,
     // Fork block number (0 = non-fork mode)
     pub fork_block_number: u64,
+    // Fork block state root (TEE-attested, needed for report_data Poseidon binding).
+    // ZERO when not in fork mode.
+    pub fork_state_root: B256,
 }
 
 /// Optional initial storage proof at fork block (S1 soundness fix).
@@ -488,6 +491,9 @@ pub fn prepare_verifier_input(
         input.contractAddress = s.contract_address;
         input.nonce = s.nonce;
         input.forkBlockNumber = s.fork_block_number;
+        // Always bind fork_state_root — Katana includes it in report_data[0..32]
+        // regardless of whether initial storage proofs exist.
+        input.forkStateRoot = s.fork_state_root;
 
         let e = shard.event;
         input.eventsCommitment = e.events_commitment;
@@ -525,4 +531,147 @@ fn current_timestamp() -> Result<u64, Error> {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
         .map_err(|e| Error::Prover(format!("Failed to get timestamp: {}", e)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn dummy_attestation() -> AttestationParams {
+        AttestationParams {
+            timestamp: 1000,
+            raw_report: Bytes::from(vec![0u8; 64]),
+            vek_der_chain: vec![],
+            trusted_certs_prefix_len: 0,
+        }
+    }
+
+    fn dummy_storage_params(fork_state_root: B256) -> StorageProofParams {
+        StorageProofParams {
+            fork_state_root,
+            fork_block_number: 42,
+            ..Default::default()
+        }
+    }
+
+    fn dummy_event_params() -> EventProofParams {
+        EventProofParams {
+            events_commitment: B256::ZERO,
+            event_hash: B256::ZERO,
+            event_index: 0,
+            events_count: 1,
+            event_merkle_proof: vec![],
+            end_block_number: 100,
+            event_tx_hash: B256::ZERO,
+            event_from_address: B256::ZERO,
+            event_keys: vec![],
+            event_data: vec![],
+        }
+    }
+
+    /// Regression: prepare_verifier_input must set forkStateRoot from
+    /// StorageProofParams even when no initial storage proof exists.
+    /// Before the fix, forkStateRoot was only set inside the
+    /// `if let Some(i) = shard.initial_storage` block, causing
+    /// Commitment mismatch when settling forks without Add CRDT changes.
+    #[test]
+    fn fork_state_root_set_without_initial_storage_proof() {
+        let fork_root = B256::from([0xF0; 32]);
+        let input = prepare_verifier_input(
+            dummy_attestation(),
+            Some(ShardInputParams {
+                storage: dummy_storage_params(fork_root),
+                event: dummy_event_params(),
+                initial_storage: None, // No initial proof!
+            }),
+        );
+
+        assert_eq!(
+            input.forkStateRoot, fork_root,
+            "forkStateRoot must be set from StorageProofParams even without initial_storage"
+        );
+    }
+
+    /// When initial_storage IS present, forkStateRoot must come from
+    /// StorageProofParams (not overwritten with a different value).
+    #[test]
+    fn fork_state_root_consistent_with_and_without_initial_storage() {
+        let fork_root = B256::from([0xAB; 32]);
+        let storage = dummy_storage_params(fork_root);
+
+        // Without initial storage
+        let input_no_initial = prepare_verifier_input(
+            dummy_attestation(),
+            Some(ShardInputParams {
+                storage: storage.clone(),
+                event: dummy_event_params(),
+                initial_storage: None,
+            }),
+        );
+
+        // With initial storage (also sets forkStateRoot)
+        let input_with_initial = prepare_verifier_input(
+            dummy_attestation(),
+            Some(ShardInputParams {
+                storage,
+                event: dummy_event_params(),
+                initial_storage: Some(InitialStorageProofParams {
+                    fork_state_root: fork_root,
+                    ..Default::default()
+                }),
+            }),
+        );
+
+        assert_eq!(
+            input_no_initial.forkStateRoot, input_with_initial.forkStateRoot,
+            "forkStateRoot must be identical regardless of initial_storage presence"
+        );
+    }
+
+    /// Attestation-only mode (no shard) should have forkStateRoot = ZERO.
+    #[test]
+    fn fork_state_root_zero_without_shard() {
+        let input = prepare_verifier_input(dummy_attestation(), None);
+        assert_eq!(input.forkStateRoot, B256::ZERO);
+    }
+
+    /// All 5 Poseidon commitment elements must survive the prepare → SP1 → journal
+    /// roundtrip. This is the schema guard: if anyone adds/removes an element,
+    /// this test must be updated.
+    ///
+    /// Schema: Poseidon([state_root, block_hash, fork_block_number, events_commitment, fork_state_root])
+    ///
+    /// - state_root, block_hash: from operator calldata (NOT in SP1 journal)
+    /// - fork_block_number: in journal as shard.forkBlockNumber
+    /// - events_commitment: in journal as shard.eventsCommitment
+    /// - fork_state_root: in journal as shard.forkStateRoot
+    #[test]
+    fn all_poseidon_elements_pass_through_verifier_input() {
+        let fork_root = B256::from([0xAA; 32]);
+        let events_commit = B256::from([0xBB; 32]);
+
+        let mut storage = dummy_storage_params(fork_root);
+        storage.fork_block_number = 42;
+
+        let mut event = dummy_event_params();
+        event.events_commitment = events_commit;
+
+        let input = prepare_verifier_input(
+            dummy_attestation(),
+            Some(ShardInputParams {
+                storage,
+                event,
+                initial_storage: None,
+            }),
+        );
+
+        // These 3 elements are in the SP1 journal (via VerifierInput → ShardProof):
+        assert_eq!(input.forkStateRoot, fork_root, "forkStateRoot passthrough");
+        assert_eq!(input.eventsCommitment, events_commit, "eventsCommitment passthrough");
+        assert_eq!(input.forkBlockNumber, 42, "forkBlockNumber passthrough");
+
+        // state_root and block_hash are in VerifierInput.globalStateRoot but
+        // passed separately via operator calldata to the on-chain contract.
+        // Their consistency with report_data is verified on-chain, not in SP1.
+    }
 }
