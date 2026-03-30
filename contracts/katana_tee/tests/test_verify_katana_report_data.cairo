@@ -208,25 +208,27 @@ fn test_verify_katana_report_data_limb3_nonzero() {
 // Schema: Poseidon([state_root, block_hash, fork_block_number, events_commitment, fork_state_root])
 // Inputs: [0x111, 0x222, 42, 0x333, 0x444]
 
+/// 9-element schema: Poseidon([prev_state_root, state_root, prev_block_hash, block_hash,
+///   prev_block_number, block_number, fork_block_number, events_commitment, fork_state_root])
 #[test]
 fn test_report_data_commitment_golden_vector() {
     let hash = poseidon_hash_span(
-        array![0x111, 0x222, 42, 0x333, 0x444].span(),
+        array![0xA0, 0x111, 0xB0, 0x222, 99, 100, 42, 0x333, 0x444].span(),
     );
     assert(
-        hash == 0x036d2c92ced99025d38649dd6b839e49a96e1a5d7e1db36eb5d3493aee3c249b,
+        hash == 0x00ce9048450cfe38b4daae537d51a44205fc2db09513d9f038b3f1078a8c050c,
         'golden vector mismatch',
     );
 }
 
-/// Schema guard: 5-element hash must differ from 4-element (old schema).
+/// Schema guard: 9-element hash must differ from old 8-element (without fork_state_root).
 #[test]
-fn test_golden_vector_5_elements_differs_from_4() {
-    let hash_5 = poseidon_hash_span(
-        array![0x111, 0x222, 42, 0x333, 0x444].span(),
+fn test_golden_vector_9_elements_differs_from_8() {
+    let hash_9 = poseidon_hash_span(
+        array![0xA0, 0x111, 0xB0, 0x222, 99, 100, 42, 0x333, 0x444].span(),
     );
-    let hash_4 = poseidon_hash_span(
-        array![0x111, 0x222, 42, 0x333].span(),
+    let hash_8 = poseidon_hash_span(
+        array![0xA0, 0x111, 0xB0, 0x222, 99, 100, 42, 0x333].span(),
     );
-    assert(hash_5 != hash_4, '5elem must differ from 4elem');
+    assert(hash_9 != hash_8, '9elem must differ from 8elem');
 }

@@ -40,15 +40,21 @@ pub fn compute_katana_args_hash(fork_provider_url: @ByteArray, fork_block_number
 /// Verify that report_data matches the Poseidon commitment and runtime args hash.
 ///
 /// report_data layout (64 bytes, represented as u512 with 4 x u128 limbs):
-///   [0..32]  = Poseidon(state_root, block_hash, fork_block_number, events_commitment, fork_state_root)
+///   [0..32]  = Poseidon(prev_state_root, state_root, prev_block_hash, block_hash,
+///                        prev_block_number, block_number, fork_block_number,
+///                        events_commitment, fork_state_root)
 ///   [32..64] = SHA-256 hash of security-critical runtime arguments
 ///
 /// The TEE hardware embeds both hashes in the attestation report's report_data field.
 /// SP1 proves the report is authentic; this function verifies both hash bindings.
 pub fn verify_katana_report_data(
     report_data: u512,
+    prev_state_root: felt252,
     state_root: felt252,
+    prev_block_hash: felt252,
     block_hash: felt252,
+    prev_block_number: u64,
+    block_number: u64,
     fork_block_number: u64,
     events_commitment: felt252,
     fork_state_root: felt252,
@@ -61,8 +67,12 @@ pub fn verify_katana_report_data(
 
     let commitment = poseidon_hash_span(
         array![
+            prev_state_root,
             state_root,
+            prev_block_hash,
             block_hash,
+            prev_block_number.into(),
+            block_number.into(),
             fork_block_number.into(),
             events_commitment,
             fork_state_root,

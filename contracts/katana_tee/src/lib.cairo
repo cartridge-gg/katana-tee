@@ -22,8 +22,11 @@ pub trait IKatanaTee<TContractState> {
     fn verify_and_update_state(
         ref self: TContractState,
         sp1_proof: Array<felt252>,
+        prev_state_root: felt252,
         state_root: felt252,
+        prev_block_hash: felt252,
         block_hash: felt252,
+        prev_block_number: u64,
         block_number: u64,
         fork_provider_url: ByteArray,
         fork_block_number: u64,
@@ -94,8 +97,11 @@ pub mod KatanaTee {
         fn verify_and_update_state(
             ref self: ContractState,
             sp1_proof: Array<felt252>,
+            prev_state_root: felt252,
             state_root: felt252,
+            prev_block_hash: felt252,
             block_hash: felt252,
+            prev_block_number: u64,
             block_number: u64,
             fork_provider_url: ByteArray,
             fork_block_number: u64,
@@ -124,8 +130,12 @@ pub mod KatanaTee {
                     let report_data = raw_report.report_data();
                     verify_katana_report_data(
                         report_data,
+                        prev_state_root,
                         state_root,
+                        prev_block_hash,
                         block_hash,
+                        prev_block_number,
+                        block_number,
                         fork_block_number,
                         journal.shard.events_commitment,
                         journal.shard.fork_state_root,
