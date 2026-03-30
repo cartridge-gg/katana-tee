@@ -226,11 +226,19 @@ fn test_verify_and_update_state() {
 
     // events_commitment=0 for legacy fixtures (will fail with 4-field Poseidon mismatch
     // but test is #[ignore] and needs new fixtures anyway)
+    // TODO: update with real prev_* values when regenerating fixtures
+    let prev_state_root: felt252 = 0;
+    let prev_block_hash: felt252 = 0;
+    let prev_block_number: u64 = 0;
+
     let (result, end_block_number, _event_game_contract, _event_shard_id, _initial_commitment, _fork_state_root) = katana_dispatcher
         .verify_and_update_state(
             sp1_proof,
+            prev_state_root,
             state_root,
+            prev_block_hash,
             block_hash,
+            prev_block_number,
             block_number,
             fork_provider_url,
             fork_block_number,

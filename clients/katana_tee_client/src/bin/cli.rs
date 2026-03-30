@@ -627,8 +627,11 @@ async fn cmd_pipeline(
 
     let attestation = get_attestation(rpc, json, prev_block_number, block_number).await?;
 
+    let prev_state_root = felt_from_hex(&attestation.prev_state_root)?;
     let state_root = felt_from_hex(&attestation.state_root)?;
+    let prev_block_hash = felt_from_hex(&attestation.prev_block_hash)?;
     let block_hash = felt_from_hex(&attestation.block_hash)?;
+    let prev_block_number = attestation.prev_block_number;
     let block_number = attestation.block_number;
 
     println!("🔎 Starknet RPC: {}", starknet_rpc);
@@ -743,8 +746,11 @@ async fn cmd_pipeline(
         .verify_and_update_state(
             &account,
             sp1_proof,
+            prev_state_root,
             state_root,
+            prev_block_hash,
             block_hash,
+            prev_block_number,
             block_number,
             &fork_provider_url,
             fork_block_number,

@@ -10,8 +10,11 @@ use snforge_std::{ContractClassTrait, DeclareResultTrait, declare};
 use starknet::ContractAddress;
 use storage_commitment::{IStorageCommitmentDispatcher, IStorageCommitmentDispatcherTrait};
 
+const TEST_PREV_STATE_ROOT: felt252 = 0xaaa111;
 const TEST_STATE_ROOT: felt252 = 0x123456789abcdef;
+const TEST_PREV_BLOCK_HASH: felt252 = 0xbbb222;
 const TEST_BLOCK_HASH: felt252 = 0xfedcba987654321;
+const TEST_PREV_BLOCK_NUMBER: u64 = 776;
 const TEST_BLOCK_NUMBER: u64 = 777;
 const TEST_FORK_BLOCK_NUMBER: u64 = 42;
 const TEST_END_BLOCK_NUMBER: u64 = 123;
@@ -37,15 +40,29 @@ fn test_args_hash() -> u256 {
 }
 
 fn build_report_data(
+    prev_state_root: felt252,
     state_root: felt252,
+    prev_block_hash: felt252,
     block_hash: felt252,
+    prev_block_number: u64,
+    block_number: u64,
     fork_block_number: u64,
     events_commitment: felt252,
     fork_state_root: felt252,
     args_hash: u256,
 ) -> u512 {
     let commitment = poseidon_hash_span(
-        array![state_root, block_hash, fork_block_number.into(), events_commitment, fork_state_root].span(),
+        array![
+            prev_state_root,
+            state_root,
+            prev_block_hash,
+            block_hash,
+            prev_block_number.into(),
+            block_number.into(),
+            fork_block_number.into(),
+            events_commitment,
+            fork_state_root,
+        ].span(),
     );
     let commitment_u256: u256 = commitment.into();
     u512 {
@@ -69,8 +86,12 @@ fn append_u128_le_words(ref data: Array<u32>, value: u128) {
 
 fn build_mock_raw_report() -> Array<u32> {
     let report_data = build_report_data(
+        TEST_PREV_STATE_ROOT,
         TEST_STATE_ROOT,
+        TEST_PREV_BLOCK_HASH,
         TEST_BLOCK_HASH,
+        TEST_PREV_BLOCK_NUMBER,
+        TEST_BLOCK_NUMBER,
         TEST_FORK_BLOCK_NUMBER,
         TEST_EVENTS_COMMITMENT,
         0,
@@ -287,8 +308,11 @@ fn test_verify_and_update_state_full_flow_with_mocks() {
     let (result, end_block_number, _event_game_contract, _event_shard_id, _initial_commitment, _fork_state_root) = katana_dispatcher
         .verify_and_update_state(
             sp1_proof,
+            TEST_PREV_STATE_ROOT,
             TEST_STATE_ROOT,
+            TEST_PREV_BLOCK_HASH,
             TEST_BLOCK_HASH,
+            TEST_PREV_BLOCK_NUMBER,
             TEST_BLOCK_NUMBER,
             fork_provider_url,
             TEST_FORK_BLOCK_NUMBER,
@@ -326,8 +350,11 @@ fn test_verify_and_update_state_rejects_wrong_fork_block_policy() {
     katana_dispatcher
         .verify_and_update_state(
             sp1_proof,
+            TEST_PREV_STATE_ROOT,
             TEST_STATE_ROOT,
+            TEST_PREV_BLOCK_HASH,
             TEST_BLOCK_HASH,
+            TEST_PREV_BLOCK_NUMBER,
             TEST_BLOCK_NUMBER,
             fork_provider_url,
             TEST_FORK_BLOCK_NUMBER + 1,
@@ -351,8 +378,11 @@ fn test_verify_and_update_state_rejects_wrong_fork_provider_policy() {
     katana_dispatcher
         .verify_and_update_state(
             sp1_proof,
+            TEST_PREV_STATE_ROOT,
             TEST_STATE_ROOT,
+            TEST_PREV_BLOCK_HASH,
             TEST_BLOCK_HASH,
+            TEST_PREV_BLOCK_NUMBER,
             TEST_BLOCK_NUMBER,
             fork_provider_url,
             TEST_FORK_BLOCK_NUMBER,

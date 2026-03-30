@@ -426,20 +426,27 @@ submit_proof() {
     local array_len=$(wc -l < "$block_dir/calldata.txt")
 
     # Extract attestation data for verify_and_update_state
+    local prev_state_root=$(jq -r '.prevStateRoot' "$block_dir/attestation.json")
     local state_root=$(jq -r '.stateRoot' "$block_dir/attestation.json")
+    local prev_block_hash=$(jq -r '.prevBlockHash' "$block_dir/attestation.json")
     local block_hash=$(jq -r '.blockHash' "$block_dir/attestation.json")
+    local prev_block_number=$(jq -r '.prevBlockNumber' "$block_dir/attestation.json")
     local block_number=$(jq -r '.blockNumber' "$block_dir/attestation.json")
 
     log "  Contract: $katana_address"
+    log "  Prev state root: $prev_state_root"
     log "  State root: $state_root"
+    log "  Prev block hash: $prev_block_hash"
     log "  Block hash: $block_hash"
+    log "  Prev block number: $prev_block_number"
     log "  Block number: $block_number"
     log "  Proof array length: $array_len"
 
     # The calldata format for verify_and_update_state:
-    # sp1_proof (array with length prefix), state_root, block_hash, block_number
+    # sp1_proof (array with length prefix), prev_state_root, state_root,
+    # prev_block_hash, block_hash, prev_block_number, block_number
     # Starknet array serialization: [length, elem1, elem2, ...]
-    local full_calldata="$array_len $calldata $state_root $block_hash $block_number"
+    local full_calldata="$array_len $calldata $prev_state_root $state_root $prev_block_hash $block_hash $prev_block_number $block_number"
 
     log "Invoking verify_and_update_state..."
     local invoke_result

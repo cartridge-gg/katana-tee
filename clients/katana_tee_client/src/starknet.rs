@@ -125,8 +125,11 @@ impl KatanaTeeStarknetClient {
         &self,
         account: &KatanaAccount,
         sp1_proof: Vec<Felt>,
+        prev_state_root: Felt,
         state_root: Felt,
+        prev_block_hash: Felt,
         block_hash: Felt,
+        prev_block_number: u64,
         block_number: u64,
         fork_provider_url: &str,
         fork_block_number: u64,
@@ -143,11 +146,14 @@ impl KatanaTeeStarknetClient {
         let full_chunks = url_bytes.len() / 31;
         let pending_len = url_bytes.len() % 31;
 
-        let mut calldata: Vec<Felt> = Vec::with_capacity(sp1_proof.len() + full_chunks + 8);
+        let mut calldata: Vec<Felt> = Vec::with_capacity(sp1_proof.len() + full_chunks + 12);
         calldata.push(Felt::from(sp1_proof.len() as u64));
         calldata.extend_from_slice(&sp1_proof);
+        calldata.push(prev_state_root);
         calldata.push(state_root);
+        calldata.push(prev_block_hash);
         calldata.push(block_hash);
+        calldata.push(Felt::from(prev_block_number));
         calldata.push(Felt::from(block_number));
 
         // ByteArray serialization
