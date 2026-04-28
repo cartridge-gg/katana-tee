@@ -121,6 +121,20 @@ pub struct TeeQuoteResponse {
     /// All L1→L2 messages processed in the attested block range.
     #[serde(default)]
     pub l1_to_l2_messages: Vec<TeeL1ToL2Message>,
+
+    /// Versioned environment config hash bound into v1 SEV-SNP `report_data`.
+    ///
+    /// Computed off-chain by the Katana node as
+    /// `pedersen_array([KatanaTeeConfig1, chain_id, fee_token_address])` and embedded
+    /// in both halves of `report_data`. Consumers (Saya) must surface this so the
+    /// on-chain Piltover settlement path can assert `tee_input.katana_tee_config_hash`
+    /// equals the `KatanaTeeProgramInfo.katana_tee_config_hash` stored at deploy time.
+    ///
+    /// `#[serde(default)]` keeps backwards compatibility with older Katana nodes that
+    /// don't yet bind this hash; downstream consumers must treat `Felt::ZERO` as
+    /// "unbound" and fail at the on-chain assertion rather than trusting it.
+    #[serde(default)]
+    pub katana_tee_config_hash: Felt,
 }
 
 impl TeeQuoteResponse {
