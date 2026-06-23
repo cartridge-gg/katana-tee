@@ -74,6 +74,49 @@ impl StarknetRegistryClient {
         }
         felt_to_u8(&result[1])
     }
+
+    /// Verify an SP1 Groth16 proof against the registry via a read-only `starknet_call`
+    /// (no transaction, no gas, no state change).
+    ///
+    /// `sp1_proof` is the Garaga calldata in length-prefixed span form (i.e.
+    /// [`StarknetCalldata::to_felts`](crate::StarknetCalldata::to_felts) — `[span_len, e0, e1, ...]`),
+    /// forwarded verbatim by the registry to the Garaga `verify_sp1_groth16_proof_bn254` entrypoint.
+    ///
+    /// Returns the decoded `VerifierJournal` felts on success. Returns an error if the call reverts
+    /// (e.g. invalid proof / wrong program id) or if the contract returns the `Result::Err` variant.
+    pub async fn verify_sp1_proof(&self, sp1_proof: Vec<Felt>) -> Result<Vec<Felt>, Error> {
+        let selector = get_selector_from_name("verify_sp1_proof")
+            .map_err(|e| Error::Starknet(format!("Selector error: {e}")))?;
+
+        // Serialize the `Array<felt252>` argument: [array_len, ...elements].
+        let mut calldata = Vec::with_capacity(sp1_proof.len() + 1);
+        calldata.push(Felt::from(sp1_proof.len() as u64));
+        calldata.extend(sp1_proof);
+
+        let call = FunctionCall {
+            contract_address: self.contract_address,
+            entry_point_selector: selector,
+            calldata,
+        };
+
+        let result = self
+            .provider
+            .call(&call, BlockId::Tag(BlockTag::Latest))
+            .await
+            .map_err(|e| Error::Starknet(format!("verify_sp1_proof call reverted: {e}")))?;
+
+        // `Result<VerifierJournal, felt252>` serializes as [variant, ...]: 0 = Ok, 1 = Err.
+        match result.first() {
+            Some(v) if *v == Felt::ZERO => Ok(result[1..].to_vec()),
+            Some(v) if *v == Felt::ONE => Err(Error::Starknet(format!(
+                "verify_sp1_proof returned Err: {:#x}",
+                result.get(1).copied().unwrap_or(Felt::ZERO)
+            ))),
+            _ => Err(Error::Starknet(
+                "verify_sp1_proof returned an unexpected result".to_string(),
+            )),
+        }
+    }
 }
 
 fn encode_check_trusted_intermediate_certs(
