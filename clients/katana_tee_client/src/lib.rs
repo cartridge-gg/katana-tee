@@ -114,6 +114,17 @@ pub struct TeeQuoteResponse {
     #[serde(default)]
     pub messages_commitment: Felt,
 
+    /// Commitment over events in the attested block range. Bound into SEV-SNP
+    /// `report_data` alongside `state_root`, `block_hash`, and `fork_block_number`,
+    /// and checked on-chain by `verify_and_update_state`.
+    #[serde(default)]
+    pub events_commitment: Felt,
+
+    /// The settlement fork block number bound into `report_data` and checked
+    /// on-chain by `verify_and_update_state`.
+    #[serde(default)]
+    pub fork_block_number: u64,
+
     /// All L2→L1 messages emitted in the attested block range.
     #[serde(default)]
     pub l2_to_l1_messages: Vec<TeeL2ToL1Message>,
