@@ -166,15 +166,17 @@ hashes, SP1 program ID, Garaga verifier class hash, deployment block) lives in
 
 ### Sepolia
 
-Source: [`deployments/sepolia.json`](deployments/sepolia.json) · deployed at block `11119511`.
+Source: [`deployments/sepolia.json`](deployments/sepolia.json) · deployed at block `11128351` · SP1 circuit `v6.1.0`.
 
 | Contract          | Address |
 |-------------------|---------|
-| AMDTeeRegistry    | `0x01258ed7b2d3435097f9290d100d706d7f9f65db2725609cd7697669cac3bc3a` |
-| KatanaTee         | `0x070477aa68dc1e6cf201fd98ba09a65c03df98c50da14df53c6111b4a28f514c` |
-| StorageCommitment | `0x06dce12f2ca63d83580ab050a76f6089d1d78c91c5833a440e672542111fdc82` |
+| AMDTeeRegistry    | `0x06ef2e9da38576240174cd4740d9e323f855dc1ce8094362f122ed7278bf32b` |
+| KatanaTee         | `0x06176b325e53547123b42b7cbd63c4a55d39bf3059a59f54cb9af2262312f133` |
+| StorageCommitment | `0x0685d3fd6d93ef8ba976621090302c65b198d76cfe9208941e9d6ff39b20ccba` |
 
-Explorer: [StarkScan](https://sepolia.starkscan.co/contract/0x01258ed7b2d3435097f9290d100d706d7f9f65db2725609cd7697669cac3bc3a)
+Verifier: self-generated Garaga SP1 v6.1.0 Groth16 verifier, class `0x051908349a7875e0234da7e55cd08492d3c53930deaf851bf284a1cadaad4332`.
+
+Explorer: [StarkScan](https://sepolia.starkscan.co/contract/0x06ef2e9da38576240174cd4740d9e323f855dc1ce8094362f122ed7278bf32b)
 
 ## Run the end-to-end pipeline (Rust CLI)
 
