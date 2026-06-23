@@ -23,15 +23,6 @@ struct RootCerts {
     milan_ark_hash_low: felt252,
 }
 
-/// Measurement config loaded from tests/fixtures/measurement.json
-/// Fields must be in alphabetical order (FileParser sorts JSON keys alphabetically)
-#[derive(Drop, Serde)]
-struct MeasurementConfig {
-    high_bits: felt252,
-    low_bits: felt252,
-    mid_bits: felt252,
-}
-
 #[executable]
 fn main() {
     // Load root certs from fixture
@@ -75,17 +66,9 @@ fn main() {
 
     let amd_tee_registry_address = declare_and_deploy_contract("AMDTEERegistry", amd_tee_calldata);
 
-    // Load measurement from fixture
-    let mfile = FileTrait::new("../../tests/fixtures/measurement.json");
-    let measurement: MeasurementConfig = FileParser::<MeasurementConfig>::parse_json(@mfile)
-        .expect('Failed to load measurement.json');
-
-    // Deploy KatanaTee with measurement (Bytes48 Serde order: low, mid, high)
+    // Deploy KatanaTee
     let mut katana_tee_calldata: Array<felt252> = array![];
     Serde::serialize(@amd_tee_registry_address, ref katana_tee_calldata);
-    katana_tee_calldata.append(measurement.low_bits);
-    katana_tee_calldata.append(measurement.mid_bits);
-    katana_tee_calldata.append(measurement.high_bits);
     let _katana_tee_address = declare_and_deploy_contract("KatanaTee", katana_tee_calldata);
 }
 

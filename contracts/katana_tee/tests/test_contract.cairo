@@ -1,5 +1,4 @@
 use katana_tee::{IKatanaTeeDispatcher, IKatanaTeeDispatcherTrait};
-use snforge_std::fs::{FileParser, FileTrait};
 use snforge_std::{ContractClassTrait, DeclareResultTrait, declare};
 use starknet::ContractAddress;
 
@@ -7,9 +6,7 @@ fn deploy_contract(
     registry_address: ContractAddress, storage_commitment_registry: ContractAddress,
 ) -> ContractAddress {
     let contract = declare("KatanaTee").unwrap().contract_class();
-    let m = load_measurement();
 
-    // Constructor calldata: registry_address, measurement (Bytes48 Serde order: low, mid, high)
     let mut calldata: Array<felt252> = array![];
     calldata.append(registry_address.into());
     calldata.append(storage_commitment_registry.into());
