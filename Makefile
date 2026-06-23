@@ -146,8 +146,28 @@ help:
         pipeline-test pipeline-prove help \
         test test-rust test-cairo test-e2e test-e2e-reuse test-fork \
         devnet-mainnet fetch-root-certs \
-        generate-cairo-fixtures
+        generate-cairo-fixtures \
+        deploy-sepolia scarb-build
 
+
+# =============================================================================
+# Contract Deployment
+# =============================================================================
+
+# Declare + deploy AMDTeeRegistry + KatanaTee + StorageCommitment to Sepolia.
+# Requires .env with SEPOLIA_RPC_URL, SEPOLIA_ACCOUNT_ADDRESS, SEPOLIA_ACCOUNT_PRIVATE_KEY
+# (account must be funded with STRK). Run from repo root so the SP1 program ID is
+# auto-computed via snp-attest-cli. Records canonical addresses in deployments/sepolia.json.
+deploy-sepolia: scarb-build
+	@set -a && . ./.env && set +a && \
+	PROVIDER_URL="$$SEPOLIA_RPC_URL" \
+	ACCOUNT_ADDRESS="$$SEPOLIA_ACCOUNT_ADDRESS" \
+	PRIVATE_KEY="$$SEPOLIA_ACCOUNT_PRIVATE_KEY" \
+	cargo run -p tee_deploy -- init
+
+# Build Cairo contract artifacts (Sierra) consumed by tee_deploy
+scarb-build:
+	scarb build
 
 # =============================================================================
 # E2E Tests

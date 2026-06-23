@@ -210,7 +210,42 @@ Deploy contracts:
 sncast --account "$STARKNET_ACCOUNT" script run deployment --network devnet --package deployment --no-state-file
 ```
 
-Run the full pipeline against deployed contracts:
+## Deploy contracts to Sepolia
+
+The Rust deployer (`crates/tee_deploy`) declares + deploys `AMDTeeRegistry`,
+`KatanaTee`, and `StorageCommitment`, wires `set_authorized_caller`, and computes
+the SP1 program ID via `snp-attest-cli` (run from repo root). Set a funded account
+in `.env` (`SEPOLIA_RPC_URL`, `SEPOLIA_ACCOUNT_ADDRESS`, `SEPOLIA_ACCOUNT_PRIVATE_KEY`),
+then:
+
+```bash
+make deploy-sepolia
+```
+
+Record the resulting addresses in `deployments/sepolia.json` (the canonical
+deployment for Sepolia) — see [Deployments](#deployments) below.
+
+## Deployments
+
+Canonical contract addresses per network. Each network's full record (class
+hashes, SP1 program ID, Garaga verifier class hash, deployment block) lives in
+`deployments/<network>.json`.
+
+### Sepolia
+
+Source: [`deployments/sepolia.json`](deployments/sepolia.json) · deployed at block `11119511`.
+
+| Contract          | Address |
+|-------------------|---------|
+| AMDTeeRegistry    | `0x01258ed7b2d3435097f9290d100d706d7f9f65db2725609cd7697669cac3bc3a` |
+| KatanaTee         | `0x070477aa68dc1e6cf201fd98ba09a65c03df98c50da14df53c6111b4a28f514c` |
+| StorageCommitment | `0x06dce12f2ca63d83580ab050a76f6089d1d78c91c5833a440e672542111fdc82` |
+
+Explorer: [StarkScan](https://sepolia.starkscan.co/contract/0x01258ed7b2d3435097f9290d100d706d7f9f65db2725609cd7697669cac3bc3a)
+
+## Run the end-to-end pipeline (Rust CLI)
+
+This will: fetch quote → query cache → prove → calldata → invoke `katana_tee.verify_and_update_state`.
 
 ```bash
 cargo run -p katana_tee_client --bin katana-tee -- pipeline \

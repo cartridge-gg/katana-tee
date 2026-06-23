@@ -1,0 +1,30 @@
+{
+  "network": "sepolia",
+  "timestamp": "2026-06-23T17:47:56+00:00",
+  "rpc_url": "https://api.cartridge.gg/x/starknet/sepolia",
+  "deployer_address": "0x0639956bab912477f04fa7b9189d014e785092e795b3b57e9481f89642cde52b",
+  "deployment_block": 11119511,
+  "contracts": {
+    "amd_tee_registry": {
+      "class_hash": "0x00f43dcc0b23750459752b77cb0911fc4af90c5c726b3e88870c560539c02818",
+      "address": "0x01258ed7b2d3435097f9290d100d706d7f9f65db2725609cd7697669cac3bc3a"
+    },
+    "katana_tee": {
+      "class_hash": "0x001532b055b891f4c61ca766faa97a6af4e700d3cff18766af653a8c77038a45",
+      "address": "0x070477aa68dc1e6cf201fd98ba09a65c03df98c50da14df53c6111b4a28f514c"
+    },
+    "storage_commitment": {
+      "class_hash": "0x066046f54202b586bfac1bda2ce74e7d515225e726610d282ca409807f52258f",
+      "address": "0x06dce12f2ca63d83580ab050a76f6089d1d78c91c5833a440e672542111fdc82"
+    }
+  },
+  "config": {
+    "garaga_verifier_class_hash": "0x04b22453df42037dd61390736454e8390910adfbbc1fa9d85613e6f375f4de22",
+    "sp1_program_id": "0x00ee047b862476f5a6837554df37415181d90397f6e4ecd7f6e3e9c5daf28ff2",
+    "max_time_diff": 86400,
+    "processor_models": [
+      "Milan",
+      "Genoa"
+    ]
+  }
+}
