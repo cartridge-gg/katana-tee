@@ -1,12 +1,22 @@
 use core::poseidon::poseidon_hash_span;
-use snforge_std::{ContractClassTrait, DeclareResultTrait, declare};
+use snforge_std::{ContractClassTrait, DeclareResultTrait, declare, start_cheat_caller_address};
 use starknet::{ContractAddress, contract_address_const};
 use storage_commitment::{IStorageCommitmentDispatcher, IStorageCommitmentDispatcherTrait};
 
 fn deploy_storage_commitment() -> ContractAddress {
+    let deployer = contract_address_const::<0xde9>();
+    let authorized = contract_address_const::<0xca11>();
+
     let contract_class = declare("StorageCommitment").unwrap().contract_class();
-    let calldata: Array<felt252> = array![];
-    let (contract_address, _) = contract_class.deploy(@calldata).unwrap();
+    // Constructor takes the deployer address (access control).
+    let (contract_address, _) = contract_class.deploy(@array![deployer.into()]).unwrap();
+
+    // The deployer wires the authorized caller (the KatanaTee contract in production),
+    // then we act as that authorized caller for the register_verified_commitment calls.
+    start_cheat_caller_address(contract_address, deployer);
+    IStorageCommitmentDispatcher { contract_address }.set_authorized_caller(authorized);
+    start_cheat_caller_address(contract_address, authorized);
+
     contract_address
 }
 

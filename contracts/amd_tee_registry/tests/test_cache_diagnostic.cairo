@@ -45,8 +45,6 @@ fn deploy_with_root_only() -> ContractAddress {
     calldata.append(root_cert.low.into());
     calldata.append(root_cert.high.into());
 
-    // storage_commitment_proxy (0 = disabled)
-    calldata.append(0);
 
     let (contract_address, _) = contract.deploy(@calldata).unwrap();
     contract_address
@@ -110,8 +108,6 @@ fn test_cache_query_with_initialized_ask() {
     calldata.append(root_cert.low.into());
     calldata.append(root_cert.high.into());
 
-    // storage_commitment_proxy (0 = disabled)
-    calldata.append(0);
 
     let (contract_address, _) = contract.deploy(@calldata).unwrap();
     let dispatcher = ICertCacheDispatcher { contract_address };
