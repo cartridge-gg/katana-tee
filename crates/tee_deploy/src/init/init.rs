@@ -25,10 +25,13 @@ use starknet_rust::{
 };
 use tracing::{info, warn};
 
-const GARAGA_CLASS_HASH: &str = "0x4b22453df42037dd61390736454e8390910adfbbc1fa9d85613e6f375f4de22";
+// Self-generated Garaga SP1 v6.1.0 Groth16 verifier, declared on Sepolia.
+const GARAGA_CLASS_HASH: &str = "0x051908349a7875e0234da7e55cd08492d3c53930deaf851bf284a1cadaad4332";
 /// Fallback SP1 program ID (low/high) when snp-attest-cli is not runnable.
-const SP1_LOW_FALLBACK: &str = "0x1b7c8b4845b3d9ade0f084ea994f8323";
-const SP1_HIGH_FALLBACK: &str = "0x00e7f4210229b46f94bd8bced85e5a1b";
+/// SP1 v6.1.0 program ID 0x00ed032fe45bc3492eb4f75fcb5c670f6be4a0e152ea8d8dbe56992f0433f65f
+/// (high = first 16 bytes, low = last 16 bytes).
+const SP1_LOW_FALLBACK: &str = "0x6be4a0e152ea8d8dbe56992f0433f65f";
+const SP1_HIGH_FALLBACK: &str = "0x00ed032fe45bc3492eb4f75fcb5c670f";
 const MAX_TIME_DIFF: u64 = 86400;
 const MILAN_LOW: &str = "326103188097639633505521426987620764621";
 const MILAN_HIGH: &str = "140650959549381881311165088169387222174";

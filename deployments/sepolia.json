@@ -1,26 +1,27 @@
 {
   "network": "sepolia",
-  "timestamp": "2026-06-23T17:47:56+00:00",
+  "timestamp": "2026-06-23T22:56:31+00:00",
   "rpc_url": "https://api.cartridge.gg/x/starknet/sepolia",
   "deployer_address": "0x0639956bab912477f04fa7b9189d014e785092e795b3b57e9481f89642cde52b",
-  "deployment_block": 11119511,
+  "deployment_block": 11128351,
   "contracts": {
     "amd_tee_registry": {
-      "class_hash": "0x00f43dcc0b23750459752b77cb0911fc4af90c5c726b3e88870c560539c02818",
-      "address": "0x01258ed7b2d3435097f9290d100d706d7f9f65db2725609cd7697669cac3bc3a"
+      "class_hash": "0x06ca389a45b66a7febd8e0cfebc0137ab351dbb130626bf4485d542b3a743132",
+      "address": "0x006ef2e9da38576240174cd4740d9e323f855dc1ce8094362f122ed7278bf32b"
     },
     "katana_tee": {
-      "class_hash": "0x001532b055b891f4c61ca766faa97a6af4e700d3cff18766af653a8c77038a45",
-      "address": "0x070477aa68dc1e6cf201fd98ba09a65c03df98c50da14df53c6111b4a28f514c"
+      "class_hash": "0x03428edbd7e03e519fda8496b5dd51c20ec9c7eb01f83b841b381f808285b1be",
+      "address": "0x06176b325e53547123b42b7cbd63c4a55d39bf3059a59f54cb9af2262312f133"
     },
     "storage_commitment": {
-      "class_hash": "0x066046f54202b586bfac1bda2ce74e7d515225e726610d282ca409807f52258f",
-      "address": "0x06dce12f2ca63d83580ab050a76f6089d1d78c91c5833a440e672542111fdc82"
+      "class_hash": "0x03eeb12a4d1191a4e6aee1a48ac84951c3aa3b65f8583a99f7944c0e433dd744",
+      "address": "0x0685d3fd6d93ef8ba976621090302c65b198d76cfe9208941e9d6ff39b20ccba"
     }
   },
   "config": {
-    "garaga_verifier_class_hash": "0x04b22453df42037dd61390736454e8390910adfbbc1fa9d85613e6f375f4de22",
-    "sp1_program_id": "0x00ee047b862476f5a6837554df37415181d90397f6e4ecd7f6e3e9c5daf28ff2",
+    "garaga_verifier_class_hash": "0x051908349a7875e0234da7e55cd08492d3c53930deaf851bf284a1cadaad4332",
+    "sp1_program_id": "0x00ed032fe45bc3492eb4f75fcb5c670f6be4a0e152ea8d8dbe56992f0433f65f",
+    "sp1_circuit_version": "v6.1.0",
     "max_time_diff": 86400,
     "processor_models": [
       "Milan",

@@ -546,6 +546,8 @@ async fn cmd_pipeline(
     let state_root = felt_from_hex(&attestation.state_root)?;
     let block_hash = felt_from_hex(&attestation.block_hash)?;
     let block_number = attestation.clone().block_number;
+    let fork_block_number = Felt::from(attestation.fork_block_number);
+    let events_commitment = attestation.events_commitment;
 
     println!("🔎 Starknet RPC: {}", starknet_rpc);
     println!("🧾 Katana block: {}", block_number);
@@ -649,7 +651,15 @@ async fn cmd_pipeline(
 
     println!("📤 Submitting verify_and_update_state...");
     let tx_hash = katana_client
-        .verify_and_update_state(&account, sp1_proof, state_root, block_hash, block_number)
+        .verify_and_update_state(
+            &account,
+            sp1_proof,
+            state_root,
+            block_hash,
+            block_number,
+            fork_block_number,
+            events_commitment,
+        )
         .await?;
 
     println!("✅ Submitted. Tx hash: 0x{:x}", tx_hash);

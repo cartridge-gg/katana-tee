@@ -46,7 +46,7 @@ reqwest = { version = "0.12", features = ["rustls-tls", "blocking"] }
 anyhow = "1"
 
 # SP1 SDK dependencies (matching AMD SDK versions exactly)
-sp1-sdk = { version = "5.2.1", default-features = false, features = ["network"] }
+sp1-sdk = { version = "=6.3.0", default-features = false, features = ["network"] }
 alloy-primitives = { version = "=1.3.1", default-features = false }
 alloy-sol-types = { version = "=1.3.1", features = ["json"] }
 bincode = "1.3.3"

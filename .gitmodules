@@ -4,11 +4,12 @@
 	branch = feature/event-proof
 [submodule "crates/amd-sev-snp-attestation-sdk"]
 	path = crates/amd-sev-snp-attestation-sdk
-	url = https://github.com/michalpalkowski/amd-sev-snp-attestation-sdk.git
-	branch = feature/sharding
+	url = https://github.com/cartridge-gg/amd-sev-snp-attestation-sdk.git
+	branch = feat/sp1-v6
 [submodule "crates/starknet-rust"]
 	path = crates/starknet-rust
 	url = https://github.com/software-mansion/starknet-rust.git
 [submodule "crates/garaga"]
 	path = crates/garaga
-	url = https://github.com/keep-starknet-strange/garaga.git
+	url = https://github.com/cartridge-gg/garaga.git
+	branch = feat/sp1-v6
