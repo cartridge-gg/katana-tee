@@ -317,28 +317,30 @@ fn resolve_sp1_program_id(args: &InitArgs) -> Result<(Felt, Felt)> {
         info!("Using SP1 program ID from --sp1-program-id argument");
         return parse_program_id_hex(hex_id).context("invalid --sp1-program-id hex");
     }
-    if !args.no_fetch_sp1_program_id {
-        match fetch_sp1_program_id_from_cli(args.sdk_path.as_deref()) {
-            Ok((low, high)) => {
-                info!("Using SP1 program ID fetched from snp-attest-cli");
-                return Ok((low, high));
-            }
-            Err(e) => {
-                warn!(
-                    "Failed to fetch SP1 program ID from snp-attest-cli: {:#}",
-                    e
-                );
-            }
-        }
+
+    // The hardcoded fallback may not match the deployed SP1 circuit, so it is only
+    // used when the operator explicitly opts in with --no-fetch-sp1-program-id.
+    if args.no_fetch_sp1_program_id {
+        warn!(
+            "Using HARDCODED FALLBACK SP1 program ID (--no-fetch-sp1-program-id). This may not \
+             match the current SP1 circuit; pass --sp1-program-id to be sure. Fallback: high={} low={}",
+            SP1_HIGH_FALLBACK, SP1_LOW_FALLBACK
+        );
+        return fallback_sp1_program_id();
     }
-    warn!(
-        "WARNING: Using HARDCODED FALLBACK SP1 program ID! This may not match the current SP1 circuit. \
-         Use --sp1-program-id to specify the correct value, or run from repo root so snp-attest-cli can be found."
-    );
-    warn!(
-        "Fallback SP1 program ID: high={} low={}",
-        SP1_HIGH_FALLBACK, SP1_LOW_FALLBACK
-    );
+
+    // Default: fetch from snp-attest-cli. A failure is fatal rather than silently
+    // deploying a registry pinned to a possibly-stale fallback program ID.
+    let (low, high) = fetch_sp1_program_id_from_cli(args.sdk_path.as_deref()).context(
+        "failed to fetch SP1 program ID from snp-attest-cli; pass --sp1-program-id explicitly, \
+         or --no-fetch-sp1-program-id to accept the hardcoded fallback",
+    )?;
+    info!("Using SP1 program ID fetched from snp-attest-cli");
+    Ok((low, high))
+}
+
+/// The hardcoded fallback SP1 program ID, split into (low, high) felts.
+fn fallback_sp1_program_id() -> Result<(Felt, Felt)> {
     Ok((
         Felt::from_hex(SP1_LOW_FALLBACK).context("fallback SP1 low")?,
         Felt::from_hex(SP1_HIGH_FALLBACK).context("fallback SP1 high")?,
@@ -404,4 +406,99 @@ fn fetch_sp1_program_id_from_cli(sdk_path_opt: Option<&str>) -> Result<(Felt, Fe
         .context("snp-attest-cli output missing onchain program ID line")?;
     let hex_id = line.strip_prefix(prefix).context("prefix")?.trim();
     parse_program_id_hex(hex_id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The canonical v6.1.0 SP1 program ID (onchain representation).
+    const V6_PROGRAM_ID: &str =
+        "0x00ed032fe45bc3492eb4f75fcb5c670f6be4a0e152ea8d8dbe56992f0433f65f";
+
+    fn base_args() -> InitArgs {
+        InitArgs {
+            private_key: String::new(),
+            address: String::new(),
+            provider_url: String::new(),
+            salt: None,
+            amd_contract_class_path: String::new(),
+            katana_contract_class_path: String::new(),
+            storage_commitment_contract_class_path: String::new(),
+            sp1_program_id: None,
+            no_fetch_sp1_program_id: false,
+            sdk_path: None,
+        }
+    }
+
+    #[test]
+    fn parse_program_id_splits_low_high() {
+        let (low, high) = parse_program_id_hex(V6_PROGRAM_ID).unwrap();
+        // high = first 16 bytes, low = last 16 bytes.
+        assert_eq!(
+            high,
+            Felt::from_hex("0x00ed032fe45bc3492eb4f75fcb5c670f").unwrap()
+        );
+        assert_eq!(
+            low,
+            Felt::from_hex("0x6be4a0e152ea8d8dbe56992f0433f65f").unwrap()
+        );
+    }
+
+    #[test]
+    fn parse_program_id_accepts_without_0x_prefix() {
+        let with = parse_program_id_hex(V6_PROGRAM_ID).unwrap();
+        let without = parse_program_id_hex(V6_PROGRAM_ID.strip_prefix("0x").unwrap()).unwrap();
+        assert_eq!(with, without);
+    }
+
+    #[test]
+    fn parse_program_id_rejects_bad_input() {
+        assert!(parse_program_id_hex("0x1234").is_err(), "too short");
+        assert!(parse_program_id_hex(&"f".repeat(63)).is_err(), "63 chars");
+        assert!(parse_program_id_hex(&"f".repeat(65)).is_err(), "65 chars");
+        let mut non_hex = "z".to_string();
+        non_hex.push_str(&"0".repeat(63));
+        assert!(parse_program_id_hex(&non_hex).is_err(), "non-hex digit");
+    }
+
+    #[test]
+    fn fallback_matches_the_v6_program_id() {
+        // The fallback constants must be a correct split of the canonical v6 ID.
+        assert_eq!(
+            fallback_sp1_program_id().unwrap(),
+            parse_program_id_hex(V6_PROGRAM_ID).unwrap()
+        );
+    }
+
+    #[test]
+    fn resolve_prefers_explicit_program_id() {
+        let mut args = base_args();
+        args.sp1_program_id = Some(V6_PROGRAM_ID.to_string());
+        // Even with a bogus sdk_path, the explicit value wins without touching the CLI.
+        args.sdk_path = Some("/nonexistent/sdk".to_string());
+        assert_eq!(
+            resolve_sp1_program_id(&args).unwrap(),
+            parse_program_id_hex(V6_PROGRAM_ID).unwrap()
+        );
+    }
+
+    #[test]
+    fn resolve_uses_fallback_only_when_opted_in() {
+        let mut args = base_args();
+        args.no_fetch_sp1_program_id = true;
+        assert_eq!(
+            resolve_sp1_program_id(&args).unwrap(),
+            fallback_sp1_program_id().unwrap()
+        );
+    }
+
+    #[test]
+    fn resolve_fails_loudly_when_cli_unavailable() {
+        // Default path (no explicit id, no opt-in) must error rather than silently
+        // falling back when the CLI can't be run.
+        let mut args = base_args();
+        args.sdk_path = Some("/nonexistent/sdk/path/xyz".to_string());
+        assert!(resolve_sp1_program_id(&args).is_err());
+    }
 }

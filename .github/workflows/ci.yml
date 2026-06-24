@@ -45,6 +45,24 @@ jobs:
       - name: Run workspace tests
         run: cargo test --workspace --locked
 
+  sdk-test:
+    name: SDK verifier tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@1.92.0
+      - uses: Swatinem/rust-cache@v2
+      - name: Install protoc
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+      # The attestation SDK is excluded from the root workspace, so its hermetic
+      # core-verification tests (SEV-SNP storage/event/state proofs + x509 cert
+      # chain) are not covered by the rust-test job. Run them directly.
+      - name: Run SDK hermetic tests
+        working-directory: crates/amd-sev-snp-attestation-sdk
+        run: cargo test --locked -p amd-sev-snp-attestation-verifier -p x509-verifier-rust-crypto
+
   cairo-test:
     name: Cairo tests (snforge)
     runs-on: ubuntu-latest
