@@ -23,7 +23,7 @@
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! // Fetch attestation from Katana RPC
 //! let client = KatanaRpcClient::new("http://localhost:5050");
-//! let attestation = client.generate_quote().await?;
+//! let attestation = client.generate_quote(None, 0).await?;
 //!
 //! // Generate SP1 proof
 //! let prover = AmdAttestationProver::new(ProverConfig::from_env());
