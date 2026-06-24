@@ -6,8 +6,9 @@
 //! i.e. the real Garaga SP1 Groth16 verification, the program-id check, journal decode, and
 //! AMD cert-chain validation all pass on-chain.
 //!
-//! The proof in `tests/fixtures/sepolia_block_0/` was generated with `katana-tee prove
-//! --prover cpu` from a Katana TEE attestation (block 0).
+//! The proof in `tests/testdata/v6/proof.json` is a real SP1 v6.1.0 network proof
+//! whose Garaga calldata was verified on-chain against the canonical Sepolia
+//! registry (this is the same fixture used by the offline `calldata_v6_golden` test).
 //!
 //! Network test — ignored by default. Run with:
 //!   cargo test -p amd_tee_registry_client --test verify_sepolia -- --ignored
@@ -17,12 +18,9 @@ use amd_tee_registry_client::{OnchainProof, StarknetCalldata, StarknetRegistryCl
 
 /// Canonical AMD TEE registry on Starknet Sepolia (see `deployments/sepolia.json`).
 const CANONICAL_SEPOLIA_REGISTRY: &str =
-    "0x01258ed7b2d3435097f9290d100d706d7f9f65db2725609cd7697669cac3bc3a";
+    "0x06ef2e9da38576240174cd4740d9e323f855dc1ce8094362f122ed7278bf32b";
 
-const PROOF_PATH: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../tests/fixtures/sepolia_block_0/proof.json"
-);
+const PROOF_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/testdata/v6/proof.json");
 
 #[tokio::test]
 #[ignore = "network: hits live Sepolia RPC"]

@@ -44,9 +44,13 @@ set +a
 # Configuration
 DEVNET_URL="http://127.0.0.1:${DEVNET_PORT:-5051}"
 SNCAST_ACCOUNT="${SNCAST_ACCOUNT:-devnet_mainnet_0}"
-GARAGA_CLASS_HASH="0x4b22453df42037dd61390736454e8390910adfbbc1fa9d85613e6f375f4de22"
-SP1_PROGRAM_ID="0x00613d956661ba71ff3d4d75fba28b79ea077510823adf4b1255ada5d2977402"
-MAX_TIME_DIFF=86400
+# Read the canonical Garaga verifier class + SP1 program ID from the deployment
+# record so the devnet registry is constructed with the current (v6) values
+# instead of stale hardcoded ones.
+DEPLOYMENTS_JSON="$PROJECT_ROOT/deployments/sepolia.json"
+GARAGA_CLASS_HASH=$(jq -r '.config.garaga_verifier_class_hash' "$DEPLOYMENTS_JSON")
+SP1_PROGRAM_ID=$(jq -r '.config.sp1_program_id' "$DEPLOYMENTS_JSON")
+MAX_TIME_DIFF=$(jq -r '.config.max_time_diff' "$DEPLOYMENTS_JSON")
 DEVNET_PID=""
 
 cleanup() {
@@ -352,57 +356,6 @@ generate_multi_block_proofs() {
     done
 
     log "=== Multi-block proof generation complete ==="
-}
-
-submit_proof() {
-    local block_dir=$1
-    log "Submitting proof to katana_tee..."
-
-    local katana_address=$(jq -r '.katana_tee.address' "$DEPLOYMENT_FILE")
-    local calldata=$(cat "$block_dir/calldata.txt")
-
-    # Count array elements (calldata.txt has one element per line)
-    local array_len=$(wc -l < "$block_dir/calldata.txt")
-
-    # Extract attestation data for verify_and_update_state
-    local state_root=$(jq -r '.stateRoot' "$block_dir/attestation.json")
-    local block_hash=$(jq -r '.blockHash' "$block_dir/attestation.json")
-    local block_number=$(jq -r '.blockNumber' "$block_dir/attestation.json")
-
-    log "  Contract: $katana_address"
-    log "  State root: $state_root"
-    log "  Block hash: $block_hash"
-    log "  Block number: $block_number"
-    log "  Proof array length: $array_len"
-
-    # The calldata format for verify_and_update_state:
-    # sp1_proof (array with length prefix), state_root, block_hash, block_number
-    # Starknet array serialization: [length, elem1, elem2, ...]
-    local full_calldata="$array_len $calldata $state_root $block_hash $block_number"
-
-    log "Invoking verify_and_update_state..."
-    local invoke_result
-    invoke_result=$(sncast --account "$SNCAST_ACCOUNT" invoke \
-        --url "$DEVNET_URL" \
-        --contract-address "$katana_address" \
-        --function verify_and_update_state \
-        --calldata $full_calldata 2>&1)
-
-    local invoke_exit=$?
-
-    log "Transaction result:"
-    echo "$invoke_result"
-
-    # Check for execution errors in the result
-    if echo "$invoke_result" | grep -qi "error\|failed"; then
-        warn "Transaction execution failed (proof verification may have on-chain issues)"
-        warn "This is expected if Garaga verifier integration is not yet complete"
-        return 1
-    elif [[ $invoke_exit -ne 0 ]]; then
-        error "Invoke command failed"
-        return 1
-    fi
-    return 0
 }
 
 verify_state() {
