@@ -133,14 +133,14 @@ impl KatanaTeeStarknetClient {
             )))
         })?;
 
-        let mut calldata: Vec<Felt> = Vec::with_capacity(sp1_proof.len() + 6);
-        calldata.push(Felt::from(sp1_proof.len() as u64));
-        calldata.extend_from_slice(&sp1_proof);
-        calldata.push(state_root);
-        calldata.push(block_hash);
-        calldata.push(block_number);
-        calldata.push(fork_block_number);
-        calldata.push(events_commitment);
+        let calldata = build_verify_and_update_state_calldata(
+            &sp1_proof,
+            state_root,
+            block_hash,
+            block_number,
+            fork_block_number,
+            events_commitment,
+        );
 
         let call = Call {
             to: self.contract_address,
@@ -156,4 +156,34 @@ impl KatanaTeeStarknetClient {
 
         Ok(res.transaction_hash)
     }
+}
+
+/// Build the calldata for a `verify_and_update_state` invocation.
+///
+/// The layout is security-load-bearing: it must match the `KatanaTee` Cairo
+/// entrypoint signature exactly —
+/// `(sp1_proof: Array<felt252>, state_root, block_hash, block_number: u64,
+/// fork_block_number: u64, events_commitment)`. An `Array<felt252>` argument
+/// serializes as its length followed by its elements, so the wire layout is:
+///
+/// `[sp1_proof.len(), ...sp1_proof, state_root, block_hash, block_number, fork_block_number, events_commitment]`
+///
+/// A silent reordering here corrupts settlement, so this is unit-tested directly.
+pub fn build_verify_and_update_state_calldata(
+    sp1_proof: &[Felt],
+    state_root: Felt,
+    block_hash: Felt,
+    block_number: Felt,
+    fork_block_number: Felt,
+    events_commitment: Felt,
+) -> Vec<Felt> {
+    let mut calldata: Vec<Felt> = Vec::with_capacity(sp1_proof.len() + 6);
+    calldata.push(Felt::from(sp1_proof.len() as u64));
+    calldata.extend_from_slice(sp1_proof);
+    calldata.push(state_root);
+    calldata.push(block_hash);
+    calldata.push(block_number);
+    calldata.push(fork_block_number);
+    calldata.push(events_commitment);
+    calldata
 }
