@@ -166,13 +166,13 @@ hashes, SP1 program ID, Garaga verifier class hash, deployment block) lives in
 
 ### Sepolia
 
-Source: [`deployments/sepolia.json`](deployments/sepolia.json) · deployed at block `11128351` · SP1 circuit `v6.1.0`.
+Source: [`deployments/sepolia.json`](deployments/sepolia.json) · deployed at block `11164036` · SP1 circuit `v6.1.0` · report_data `v1`.
 
 | Contract          | Address |
 |-------------------|---------|
 | AMDTeeRegistry    | `0x06ef2e9da38576240174cd4740d9e323f855dc1ce8094362f122ed7278bf32b` |
-| KatanaTee         | `0x06176b325e53547123b42b7cbd63c4a55d39bf3059a59f54cb9af2262312f133` |
-| StorageCommitment | `0x0685d3fd6d93ef8ba976621090302c65b198d76cfe9208941e9d6ff39b20ccba` |
+| KatanaTee         | `0x05043463f508ddaa8decb6092c5c799c7a6109173a7a01ae94c4e381aaba39a9` |
+| StorageCommitment | `0x075c95d0f7321687de9e1c2bdc9478b4a0ec4ae416e2b8af5fd4c54317602f54` |
 
 Verifier: self-generated Garaga SP1 v6.1.0 Groth16 verifier, class `0x051908349a7875e0234da7e55cd08492d3c53930deaf851bf284a1cadaad4332`.
 

@@ -1,27 +1,29 @@
 {
   "network": "sepolia",
-  "timestamp": "2026-06-23T22:56:31+00:00",
+  "timestamp": "2026-06-24T19:41:05+00:00",
   "rpc_url": "https://api.cartridge.gg/x/starknet/sepolia",
   "deployer_address": "0x0639956bab912477f04fa7b9189d014e785092e795b3b57e9481f89642cde52b",
-  "deployment_block": 11128351,
+  "deployment_block": 11164036,
   "contracts": {
     "amd_tee_registry": {
       "class_hash": "0x06ca389a45b66a7febd8e0cfebc0137ab351dbb130626bf4485d542b3a743132",
       "address": "0x006ef2e9da38576240174cd4740d9e323f855dc1ce8094362f122ed7278bf32b"
     },
     "katana_tee": {
-      "class_hash": "0x03428edbd7e03e519fda8496b5dd51c20ec9c7eb01f83b841b381f808285b1be",
-      "address": "0x06176b325e53547123b42b7cbd63c4a55d39bf3059a59f54cb9af2262312f133"
+      "class_hash": "0x05c4ae3bc2de2b0a5154a6f5a4da182a91fd7265f3397418d666eb7b85e0fdd9",
+      "address": "0x05043463f508ddaa8decb6092c5c799c7a6109173a7a01ae94c4e381aaba39a9"
     },
     "storage_commitment": {
-      "class_hash": "0x03eeb12a4d1191a4e6aee1a48ac84951c3aa3b65f8583a99f7944c0e433dd744",
-      "address": "0x0685d3fd6d93ef8ba976621090302c65b198d76cfe9208941e9d6ff39b20ccba"
+      "class_hash": "0x066046f54202b586bfac1bda2ce74e7d515225e726610d282ca409807f52258f",
+      "address": "0x075c95d0f7321687de9e1c2bdc9478b4a0ec4ae416e2b8af5fd4c54317602f54"
     }
   },
   "config": {
     "garaga_verifier_class_hash": "0x051908349a7875e0234da7e55cd08492d3c53930deaf851bf284a1cadaad4332",
     "sp1_program_id": "0x00ed032fe45bc3492eb4f75fcb5c670f6be4a0e152ea8d8dbe56992f0433f65f",
     "sp1_circuit_version": "v6.1.0",
+    "report_data_version": "v1",
+    "katana_tee_config_hash": "0x001e6daca26d3d6429b176987b51f016baf1fc998f1961d02594e2ab307a61d1",
     "max_time_diff": 86400,
     "processor_models": [
       "Milan",
