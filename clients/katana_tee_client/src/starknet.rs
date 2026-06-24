@@ -117,15 +117,18 @@ impl KatanaTeeStarknetClient {
     /// Invoke `verify_and_update_state` on the `katana_tee` contract.
     ///
     /// Returns the transaction hash.
+    #[allow(clippy::too_many_arguments)]
     pub async fn verify_and_update_state(
         &self,
         account: &KatanaAccount,
         sp1_proof: Vec<Felt>,
+        prev_state_root: Felt,
         state_root: Felt,
+        prev_block_hash: Felt,
         block_hash: Felt,
+        prev_block_number: Felt,
         block_number: Felt,
-        fork_block_number: Felt,
-        events_commitment: Felt,
+        messages_commitment: Felt,
     ) -> Result<Felt, Error> {
         let selector = get_selector_from_name("verify_and_update_state").map_err(|e| {
             Error::Registry(amd_tee_registry_client::Error::Starknet(format!(
@@ -135,11 +138,13 @@ impl KatanaTeeStarknetClient {
 
         let calldata = build_verify_and_update_state_calldata(
             &sp1_proof,
+            prev_state_root,
             state_root,
+            prev_block_hash,
             block_hash,
+            prev_block_number,
             block_number,
-            fork_block_number,
-            events_commitment,
+            messages_commitment,
         );
 
         let call = Call {
@@ -162,28 +167,34 @@ impl KatanaTeeStarknetClient {
 ///
 /// The layout is security-load-bearing: it must match the `KatanaTee` Cairo
 /// entrypoint signature exactly —
-/// `(sp1_proof: Array<felt252>, state_root, block_hash, block_number: u64,
-/// fork_block_number: u64, events_commitment)`. An `Array<felt252>` argument
-/// serializes as its length followed by its elements, so the wire layout is:
+/// `(sp1_proof: Array<felt252>, prev_state_root, state_root, prev_block_hash,
+/// block_hash, prev_block_number, block_number: u64, messages_commitment)`. An
+/// `Array<felt252>` argument serializes as its length followed by its elements,
+/// so the wire layout is:
 ///
-/// `[sp1_proof.len(), ...sp1_proof, state_root, block_hash, block_number, fork_block_number, events_commitment]`
+/// `[sp1_proof.len(), ...sp1_proof, prev_state_root, state_root, prev_block_hash, block_hash, prev_block_number, block_number, messages_commitment]`
 ///
 /// A silent reordering here corrupts settlement, so this is unit-tested directly.
+#[allow(clippy::too_many_arguments)]
 pub fn build_verify_and_update_state_calldata(
     sp1_proof: &[Felt],
+    prev_state_root: Felt,
     state_root: Felt,
+    prev_block_hash: Felt,
     block_hash: Felt,
+    prev_block_number: Felt,
     block_number: Felt,
-    fork_block_number: Felt,
-    events_commitment: Felt,
+    messages_commitment: Felt,
 ) -> Vec<Felt> {
-    let mut calldata: Vec<Felt> = Vec::with_capacity(sp1_proof.len() + 6);
+    let mut calldata: Vec<Felt> = Vec::with_capacity(sp1_proof.len() + 8);
     calldata.push(Felt::from(sp1_proof.len() as u64));
     calldata.extend_from_slice(sp1_proof);
+    calldata.push(prev_state_root);
     calldata.push(state_root);
+    calldata.push(prev_block_hash);
     calldata.push(block_hash);
+    calldata.push(prev_block_number);
     calldata.push(block_number);
-    calldata.push(fork_block_number);
-    calldata.push(events_commitment);
+    calldata.push(messages_commitment);
     calldata
 }

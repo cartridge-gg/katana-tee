@@ -10,6 +10,7 @@ fn deploy_contract(
     let mut calldata: Array<felt252> = array![];
     calldata.append(registry_address.into());
     calldata.append(storage_commitment_registry.into());
+    calldata.append(0); // katana_tee_config_hash
 
     let (contract_address, _) = contract.deploy(@calldata).unwrap();
     contract_address

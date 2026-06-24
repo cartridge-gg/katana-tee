@@ -34,6 +34,10 @@ const GARAGA_CLASS_HASH: &str =
 const SP1_LOW_FALLBACK: &str = "0x6be4a0e152ea8d8dbe56992f0433f65f";
 const SP1_HIGH_FALLBACK: &str = "0x00ed032fe45bc3492eb4f75fcb5c670f";
 const MAX_TIME_DIFF: u64 = 86400;
+/// Pinned katana_tee_config_hash (v1 report_data second half). Canonical value for
+/// the current Katana TEE chain config; override with --katana-tee-config-hash.
+const KATANA_TEE_CONFIG_HASH: &str =
+    "0x001e6daca26d3d6429b176987b51f016baf1fc998f1961d02594e2ab307a61d1";
 const MILAN_LOW: &str = "326103188097639633505521426987620764621";
 const MILAN_HIGH: &str = "140650959549381881311165088169387222174";
 const GENOA_LOW: &str = "122279190577630630319986709203695547121";
@@ -89,6 +93,17 @@ pub struct InitArgs {
     /// Path to amd-sev-snp-attestation-sdk (for `cargo run -p snp-attest-cli -- program-id --sp1`). Default: ./crates/amd-sev-snp-attestation-sdk
     #[arg(long)]
     pub sdk_path: Option<String>,
+
+    /// katana_tee_config_hash to pin in KatanaTee (hex felt). Defaults to the
+    /// canonical value; the node must embed this in report_data v1.
+    #[arg(long)]
+    pub katana_tee_config_hash: Option<String>,
+
+    /// Reuse an existing AMDTeeRegistry at this address (hex felt) instead of
+    /// declaring + deploying a fresh one. KatanaTee + StorageCommitment are still
+    /// deployed fresh and wired to it.
+    #[arg(long)]
+    pub registry_address: Option<String>,
 }
 
 pub async fn run_init(args: InitArgs) -> Result<()> {
@@ -115,15 +130,19 @@ pub async fn run_init(args: InitArgs) -> Result<()> {
         starknet_core::types::BlockTag::PreConfirmed,
     ));
 
-    // Declare AMDTeeRegistry
-    let (maybe_tx, amd_class_hash) = declare_contract(&account, &args.amd_contract_class_path)
-        .await
-        .map_err(|e| anyhow::anyhow!("declare AMDTeeRegistry: {}", e))?;
-
-    if let Some(tx) = maybe_tx {
-        info!("Waiting for AMDTeeRegistry declaration to be confirmed...");
-        let _ = watch_tx(&provider, tx.transaction_hash, POLLING_INTERVAL).await;
-    }
+    // Declare AMDTeeRegistry (skipped when reusing an existing registry).
+    let amd_class_hash = if args.registry_address.is_none() {
+        let (maybe_tx, h) = declare_contract(&account, &args.amd_contract_class_path)
+            .await
+            .map_err(|e| anyhow::anyhow!("declare AMDTeeRegistry: {}", e))?;
+        if let Some(tx) = maybe_tx {
+            info!("Waiting for AMDTeeRegistry declaration to be confirmed...");
+            let _ = watch_tx(&provider, tx.transaction_hash, POLLING_INTERVAL).await;
+        }
+        Some(h)
+    } else {
+        None
+    };
 
     // Declare KatanaTee
     let (maybe_tx, katana_class_hash) =
@@ -173,39 +192,53 @@ pub async fn run_init(args: InitArgs) -> Result<()> {
         sp1_low, sp1_high
     );
 
-    // AMDTeeRegistry constructor calldata:
-    // verifier_class_hash, sp1_program_id (low, high), max_time_diff,
-    // trusted_certs (len 0), processor_models (len 2: Milan=0, Genoa=1), root_certs (len 2: milan u256, genoa u256)
-    let amd_calldata = vec![
-        Felt::from_hex(GARAGA_CLASS_HASH).unwrap(),
-        sp1_low,
-        sp1_high,
-        Felt::from(MAX_TIME_DIFF),
-        Felt::ZERO,       // trusted_certs len
-        Felt::from(2u64), // processor_models len
-        Felt::ZERO,       // Milan
-        Felt::ONE,        // Genoa
-        Felt::from(2u64), // root_certs len
-        Felt::from_dec_str(MILAN_LOW).unwrap(),
-        Felt::from_dec_str(MILAN_HIGH).unwrap(),
-        Felt::from_dec_str(GENOA_LOW).unwrap(),
-        Felt::from_dec_str(GENOA_HIGH).unwrap(),
-    ];
+    // Deploy AMDTeeRegistry, or reuse an existing one via --registry-address
+    // (lets us redeploy KatanaTee/StorageCommitment without churning the registry).
+    let amd_address = if let Some(ref reg) = args.registry_address {
+        let a = Felt::from_hex(reg).context("invalid --registry-address")?;
+        info!("Reusing existing AMDTeeRegistry: {:#x}", a);
+        a
+    } else {
+        // AMDTeeRegistry constructor calldata:
+        // verifier_class_hash, sp1_program_id (low, high), max_time_diff,
+        // trusted_certs (len 0), processor_models (len 2: Milan=0, Genoa=1), root_certs (len 2: milan u256, genoa u256)
+        let amd_calldata = vec![
+            Felt::from_hex(GARAGA_CLASS_HASH).unwrap(),
+            sp1_low,
+            sp1_high,
+            Felt::from(MAX_TIME_DIFF),
+            Felt::ZERO,       // trusted_certs len
+            Felt::from(2u64), // processor_models len
+            Felt::ZERO,       // Milan
+            Felt::ONE,        // Genoa
+            Felt::from(2u64), // root_certs len
+            Felt::from_dec_str(MILAN_LOW).unwrap(),
+            Felt::from_dec_str(MILAN_HIGH).unwrap(),
+            Felt::from_dec_str(GENOA_LOW).unwrap(),
+            Felt::from_dec_str(GENOA_HIGH).unwrap(),
+        ];
 
-    let (maybe_tx, amd_address) =
-        deploy::deploy(&account, amd_class_hash, amd_calldata, Some(salt), false)
-            .await
-            .map_err(|e| anyhow::anyhow!("deploy AMDTeeRegistry: {}", e))?;
+        let (maybe_tx, amd_address) = deploy::deploy(
+            &account,
+            amd_class_hash.expect("registry class hash declared when not reusing"),
+            amd_calldata,
+            Some(salt),
+            false,
+        )
+        .await
+        .map_err(|e| anyhow::anyhow!("deploy AMDTeeRegistry: {}", e))?;
 
-    info!(
-        "Deployed AMDTeeRegistry: {:?}, tx_hash: {:?}",
-        amd_address, maybe_tx
-    );
+        info!(
+            "Deployed AMDTeeRegistry: {:?}, tx_hash: {:?}",
+            amd_address, maybe_tx
+        );
 
-    if let Some(ref tx_result) = maybe_tx {
-        info!("Waiting for AMDTeeRegistry deployment to be confirmed...");
-        let _ = watch_tx(&provider, tx_result.transaction_hash, POLLING_INTERVAL).await;
-    }
+        if let Some(ref tx_result) = maybe_tx {
+            info!("Waiting for AMDTeeRegistry deployment to be confirmed...");
+            let _ = watch_tx(&provider, tx_result.transaction_hash, POLLING_INTERVAL).await;
+        }
+        amd_address
+    };
 
     // Deploy StorageCommitment (constructor takes deployer address for access control)
     let storage_commitment_calldata = vec![address];
@@ -230,8 +263,23 @@ pub async fn run_init(args: InitArgs) -> Result<()> {
         let _ = watch_tx(&provider, tx_result.transaction_hash, POLLING_INTERVAL).await;
     }
 
-    // KatanaTee constructor: registry_address, storage_commitment_registry
-    let katana_calldata = vec![amd_address, storage_commitment_address];
+    // KatanaTee constructor: registry_address, storage_commitment_registry,
+    // katana_tee_config_hash (pinned; the node must carry it in report_data v1).
+    let katana_tee_config_hash = Felt::from_hex(
+        args.katana_tee_config_hash
+            .as_deref()
+            .unwrap_or(KATANA_TEE_CONFIG_HASH),
+    )
+    .context("invalid katana_tee_config_hash")?;
+    info!(
+        "Pinning katana_tee_config_hash: {:#x}",
+        katana_tee_config_hash
+    );
+    let katana_calldata = vec![
+        amd_address,
+        storage_commitment_address,
+        katana_tee_config_hash,
+    ];
 
     let (maybe_tx, katana_address) = deploy::deploy(
         &account,
@@ -428,6 +476,8 @@ mod tests {
             sp1_program_id: None,
             no_fetch_sp1_program_id: false,
             sdk_path: None,
+            katana_tee_config_hash: None,
+            registry_address: None,
         }
     }
 
