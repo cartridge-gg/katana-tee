@@ -1,11 +1,9 @@
 //! Unit coverage for the `verify_and_update_state` calldata layout.
 //!
-//! This is the on-chain settlement encoding (the production
-//! `KatanaTeeStarknetClient::verify_and_update_state` previously had 0% test
-//! coverage). The felt ordering must match the `KatanaTee` Cairo entrypoint
-//! `(sp1_proof: Array<felt252>, state_root, block_hash, block_number: u64,
-//! fork_block_number: u64, events_commitment)` exactly — a silent reorder
-//! corrupts settlement.
+//! This is the on-chain settlement encoding. The felt ordering must match the
+//! `KatanaTee` Cairo entrypoint `(sp1_proof: Array<felt252>, prev_state_root,
+//! state_root, prev_block_hash, block_hash, prev_block_number, block_number: u64,
+//! messages_commitment)` exactly — a silent reorder corrupts settlement.
 
 use katana_tee_client::starknet::build_verify_and_update_state_calldata;
 use starknet_rust_core::types::Felt;
@@ -13,19 +11,23 @@ use starknet_rust_core::types::Felt;
 #[test]
 fn calldata_layout_is_exact() {
     let sp1_proof = vec![Felt::from(11u64), Felt::from(22u64), Felt::from(33u64)];
+    let prev_state_root = Felt::from(0xA0u64);
     let state_root = Felt::from(0xAAu64);
+    let prev_block_hash = Felt::from(0xB0u64);
     let block_hash = Felt::from(0xBBu64);
+    let prev_block_number = Felt::from(0xF0u64);
     let block_number = Felt::from(7u64);
-    let fork_block_number = Felt::from(5u64);
-    let events_commitment = Felt::from(0xCCu64);
+    let messages_commitment = Felt::from(0xCCu64);
 
     let calldata = build_verify_and_update_state_calldata(
         &sp1_proof,
+        prev_state_root,
         state_root,
+        prev_block_hash,
         block_hash,
+        prev_block_number,
         block_number,
-        fork_block_number,
-        events_commitment,
+        messages_commitment,
     );
 
     let expected = vec![
@@ -33,11 +35,13 @@ fn calldata_layout_is_exact() {
         Felt::from(11u64),
         Felt::from(22u64),
         Felt::from(33u64),
+        prev_state_root,
         state_root,
+        prev_block_hash,
         block_hash,
+        prev_block_number,
         block_number,
-        fork_block_number,
-        events_commitment,
+        messages_commitment,
     ];
     assert_eq!(calldata, expected);
 }
@@ -51,6 +55,8 @@ fn empty_proof_still_orders_tail_fields() {
         Felt::from(3u64),
         Felt::from(4u64),
         Felt::from(5u64),
+        Felt::from(6u64),
+        Felt::from(7u64),
     );
 
     assert_eq!(
@@ -62,6 +68,8 @@ fn empty_proof_still_orders_tail_fields() {
             Felt::from(3u64),
             Felt::from(4u64),
             Felt::from(5u64),
+            Felt::from(6u64),
+            Felt::from(7u64),
         ]
     );
 }

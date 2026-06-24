@@ -85,6 +85,7 @@ fn deploy_katana_tee_and_storage_commitment_registry(
     let mut calldata: Array<felt252> = array![];
     calldata.append(registry_address.into());
     calldata.append(storage_commitment_registry.into());
+    calldata.append(0); // katana_tee_config_hash
 
     let (katana_contract_address, _) = contract.deploy(@calldata).unwrap();
 
@@ -193,10 +194,10 @@ fn test_verify_and_update_state() {
     // Start spying BEFORE the action
     let mut spy = spy_events();
 
-    // events_commitment=0 for legacy fixtures (will fail with 4-field Poseidon mismatch
-    // but test is #[ignore] and needs new fixtures anyway)
+    // Legacy fixtures (will fail the v1 appchain commitment; test is #[ignore]
+    // and needs new fixtures anyway). prev_* + messages_commitment are 0 here.
     let (result, end_block_number) = katana_dispatcher
-        .verify_and_update_state(sp1_proof, state_root, block_hash, block_number, 0, 0)
+        .verify_and_update_state(sp1_proof, 0, state_root, 0, block_hash, 0, block_number, 0)
         .unwrap();
 
     // Get events AFTER the action

@@ -543,11 +543,13 @@ async fn cmd_pipeline(
 
     let attestation = get_attestation(rpc, json).await?;
 
+    let prev_state_root = felt_from_hex(&attestation.prev_state_root)?;
     let state_root = felt_from_hex(&attestation.state_root)?;
+    let prev_block_hash = felt_from_hex(&attestation.prev_block_hash)?;
     let block_hash = felt_from_hex(&attestation.block_hash)?;
-    let block_number = attestation.clone().block_number;
-    let fork_block_number = Felt::from(attestation.fork_block_number);
-    let events_commitment = attestation.events_commitment;
+    let prev_block_number = attestation.prev_block_number;
+    let block_number = attestation.block_number;
+    let messages_commitment = attestation.messages_commitment;
 
     println!("🔎 Starknet RPC: {}", starknet_rpc);
     println!("🧾 Katana block: {}", block_number);
@@ -654,11 +656,13 @@ async fn cmd_pipeline(
         .verify_and_update_state(
             &account,
             sp1_proof,
+            prev_state_root,
             state_root,
+            prev_block_hash,
             block_hash,
+            prev_block_number,
             block_number,
-            fork_block_number,
-            events_commitment,
+            messages_commitment,
         )
         .await?;
 
