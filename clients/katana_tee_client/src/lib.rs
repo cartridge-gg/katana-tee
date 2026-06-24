@@ -17,7 +17,8 @@
 //! # Example
 //!
 //! ```no_run
-//! use katana_tee_client::{KatanaRpcClient, AmdAttestationProver, ProverConfig};
+//! use katana_tee_client::{KatanaRpcClient, AmdAttestationProver, ProverConfig, StarknetRegistryClient};
+//! use starknet_rust_core::types::Felt;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! // Fetch attestation from Katana RPC
@@ -26,9 +27,10 @@
 //!
 //! // Generate SP1 proof
 //! let prover = AmdAttestationProver::new(ProverConfig::from_env());
+//! let registry = StarknetRegistryClient::new("https://api.cartridge.gg/x/starknet/sepolia", Felt::ZERO);
 //! let quote_bytes = attestation.quote_bytes()?;
-//! let proof = prover.prove(&quote_bytes).await?;
-//! println!("Proof generated: {:?}", proof.program_id.verifier_id);
+//! let proof = prover.prove(&quote_bytes, &registry).await?;
+//! println!("Proof generated: {:?}", proof.proof.program_id.verifier_id);
 //! # Ok(())
 //! # }
 //! ```
