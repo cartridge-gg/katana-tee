@@ -1,3 +1,18 @@
+//! # KatanaTee — standalone / testing TEE verifier
+//!
+//! **This is NOT the production settlement contract.** It is a self-contained
+//! contract that exercises the AMD SEV-SNP + SP1 attestation path (via
+//! `AMDTEERegistry`) end-to-end: verify the proof, bind the v1 `report_data`
+//! commitment, and record the latest attested state. It exists so this repo can
+//! prove + verify attestations on-chain without pulling in a full settlement core,
+//! and it backs the `katana-tee` CLI pipeline and integration tests.
+//!
+//! Production appchains settle through **Piltover**
+//! (<https://github.com/cartridge-gg/piltover>, vendored at `crates/piltover`),
+//! whose `update_state(PiltoverInput)` TEE path uses the **same** `AMDTEERegistry`
+//! and the **same** v1 appchain commitment as this contract, alongside STARK
+//! validity proofs and full L1<->L2 messaging. Prefer Piltover for real settlement.
+
 pub mod katana_report_utils;
 use amd_tee_registry::tee_types::VerifierJournal;
 use starknet::ContractAddress;

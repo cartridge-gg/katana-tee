@@ -11,7 +11,8 @@
     },
     "katana_tee": {
       "class_hash": "0x05c4ae3bc2de2b0a5154a6f5a4da182a91fd7265f3397418d666eb7b85e0fdd9",
-      "address": "0x05043463f508ddaa8decb6092c5c799c7a6109173a7a01ae94c4e381aaba39a9"
+      "address": "0x05043463f508ddaa8decb6092c5c799c7a6109173a7a01ae94c4e381aaba39a9",
+      "note": "Standalone/testing TEE verifier. Production settlement uses Piltover (cartridge-gg/piltover), which consumes the same amd_tee_registry."
     },
     "storage_commitment": {
       "class_hash": "0x066046f54202b586bfac1bda2ce74e7d515225e726610d282ca409807f52258f",
