@@ -13,3 +13,6 @@
 	path = crates/garaga
 	url = https://github.com/cartridge-gg/garaga.git
 	branch = feat/sp1-v6
+[submodule "crates/piltover"]
+	path = crates/piltover
+	url = https://github.com/cartridge-gg/piltover

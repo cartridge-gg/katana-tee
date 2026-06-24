@@ -6,12 +6,21 @@ This repository contains:
 
 ## Repository layout
 
-- `contracts/amd_tee_registry/` - AMD TEE registry verifier contract + tests
-- `contracts/katana_tee/` - Katana TEE contract (uses registry) + tests
+- `contracts/amd_tee_registry/` - AMD TEE registry verifier contract + tests (the reusable core)
+- `contracts/katana_tee/` - **standalone / testing** TEE verifier on top of the registry (see note below)
 - `contracts/scripts/` - Deployment scripts (sncast)
 - `clients/amd_tee_registry_client/` - Core proving library (Rust)
 - `clients/katana_tee_client/` - CLI + Starknet integration (Rust)
-- `crates/` - Git submodules (AMD SDK, Katana, Starknet, Garaga)
+- `crates/` - Git submodules (AMD SDK, Katana, Starknet, Garaga, Piltover)
+
+> **Note on `KatanaTee` vs Piltover.** `AMDTEERegistry` is the reusable AMD SEV-SNP +
+> SP1 Groth16 verifier. `KatanaTee` is a **standalone / testing** contract that wires
+> the registry to verify an attestation and record the latest attested state — it backs
+> the CLI pipeline and integration tests, but it is **not** the production settlement
+> path. Real appchains settle through **Piltover** (`crates/piltover`,
+> <https://github.com/cartridge-gg/piltover>), whose TEE path uses the same
+> `AMDTEERegistry` and the same v1 appchain commitment, plus STARK proofs and L1<->L2
+> messaging.
 - `tests/e2e/` - End-to-end test scripts
 - `tests/fixtures/` - Test fixtures (attestations, proofs, root certs)
 
