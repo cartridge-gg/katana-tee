@@ -176,7 +176,7 @@ Source: [`deployments/sepolia.json`](deployments/sepolia.json) · deployed at bl
 
 Verifier: self-generated Garaga SP1 v6.1.0 Groth16 verifier, class `0x051908349a7875e0234da7e55cd08492d3c53930deaf851bf284a1cadaad4332`.
 
-Explorer: [StarkScan](https://sepolia.starkscan.co/contract/0x06ef2e9da38576240174cd4740d9e323f855dc1ce8094362f122ed7278bf32b)
+Explorer: [Voyager](https://sepolia.voyager.online/contract/0x06ef2e9da38576240174cd4740d9e323f855dc1ce8094362f122ed7278bf32b)
 
 ## Run the end-to-end pipeline (Rust CLI)
 
