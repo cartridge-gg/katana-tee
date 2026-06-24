@@ -79,7 +79,7 @@ make test-e2e-reuse
 
 ```bash
 make test-fork   # fork-based Cairo tests (requires MAINNET_RPC_URL)
-make e2e-live    # live E2E (requires TEE access + SP1 prover network)
+make test-e2e    # live E2E (requires TEE access + SP1 prover network + devnet)
 ```
 
 ## CLI Reference
