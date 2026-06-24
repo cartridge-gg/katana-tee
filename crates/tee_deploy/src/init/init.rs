@@ -26,7 +26,8 @@ use starknet_rust::{
 use tracing::{info, warn};
 
 // Self-generated Garaga SP1 v6.1.0 Groth16 verifier, declared on Sepolia.
-const GARAGA_CLASS_HASH: &str = "0x051908349a7875e0234da7e55cd08492d3c53930deaf851bf284a1cadaad4332";
+const GARAGA_CLASS_HASH: &str =
+    "0x051908349a7875e0234da7e55cd08492d3c53930deaf851bf284a1cadaad4332";
 /// Fallback SP1 program ID (low/high) when snp-attest-cli is not runnable.
 /// SP1 v6.1.0 program ID 0x00ed032fe45bc3492eb4f75fcb5c670f6be4a0e152ea8d8dbe56992f0433f65f
 /// (high = first 16 bytes, low = last 16 bytes).
@@ -323,7 +324,10 @@ fn resolve_sp1_program_id(args: &InitArgs) -> Result<(Felt, Felt)> {
                 return Ok((low, high));
             }
             Err(e) => {
-                warn!("Failed to fetch SP1 program ID from snp-attest-cli: {:#}", e);
+                warn!(
+                    "Failed to fetch SP1 program ID from snp-attest-cli: {:#}",
+                    e
+                );
             }
         }
     }

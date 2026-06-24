@@ -41,7 +41,11 @@ impl KatanaRpcClient {
     }
 
     /// Fetch a TEE attestation quote from the Katana node.
-    pub async fn fetch_attestation(&self, prev_block_number: Option<u64>, block_number: u64) -> Result<TeeQuoteResponse, Error> {
+    pub async fn fetch_attestation(
+        &self,
+        prev_block_number: Option<u64>,
+        block_number: u64,
+    ) -> Result<TeeQuoteResponse, Error> {
         info!("Fetching TEE attestation from {}", self.url);
 
         #[derive(Serialize)]
@@ -120,14 +124,23 @@ impl KatanaRpcClient {
     }
 
     /// Fetch attestation (blocking version for non-async contexts).
-    pub fn fetch_attestation_blocking(&self, prev_block_number: Option<u64>, block_number: u64) -> Result<TeeQuoteResponse, Error> {
+    pub fn fetch_attestation_blocking(
+        &self,
+        prev_block_number: Option<u64>,
+        block_number: u64,
+    ) -> Result<TeeQuoteResponse, Error> {
         let rt = tokio::runtime::Runtime::new()
             .map_err(|e| Error::Rpc(format!("Failed to create runtime: {}", e)))?;
         rt.block_on(self.fetch_attestation(prev_block_number, block_number))
     }
 
     /// Alias for `fetch_attestation` for consistency with RPC method name.
-    pub async fn generate_quote(&self, prev_block_number: Option<u64>, block_number: u64) -> Result<TeeQuoteResponse, Error> {
-        self.fetch_attestation(prev_block_number, block_number).await
+    pub async fn generate_quote(
+        &self,
+        prev_block_number: Option<u64>,
+        block_number: u64,
+    ) -> Result<TeeQuoteResponse, Error> {
+        self.fetch_attestation(prev_block_number, block_number)
+            .await
     }
 }

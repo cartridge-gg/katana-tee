@@ -6,18 +6,22 @@
 //! ## Quick Start
 //!
 //! ```no_run
-//! use amd_tee_registry_client::{AmdAttestationProver, ProverConfig, StarknetCalldata};
+//! use amd_tee_registry_client::{AmdAttestationProver, StarknetCalldata, StarknetRegistryClient};
+//! use starknet_rust_core::types::Felt;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! // Create prover (reads NETWORK_PRIVATE_KEY from environment)
 //! let prover = AmdAttestationProver::from_env();
 //!
+//! // Registry client for the on-chain AMDTeeRegistry (used to size the cert-cache prefix)
+//! let registry = StarknetRegistryClient::new("https://api.cartridge.gg/x/starknet/sepolia", Felt::ZERO);
+//!
 //! // Generate proof from attestation report bytes (1184 bytes)
 //! let report_bytes: Vec<u8> = vec![/* ... */];
-//! let proof = prover.prove(&report_bytes).await?;
+//! let proof = prover.prove(&report_bytes, &registry).await?;
 //!
 //! // Convert to Starknet calldata
-//! let calldata = StarknetCalldata::from_proof(&proof)?;
+//! let calldata = StarknetCalldata::from_proof(&proof.proof)?;
 //!
 //! // Get hex strings for contract calls
 //! println!("Calldata elements: {}", calldata.len());

@@ -12,8 +12,11 @@ const EXAMPLE_JSON: &str = r#"{
 fn test_parse_json_rpc_response() {
     let response = TeeQuoteResponse::from_json_str(EXAMPLE_JSON).unwrap();
     assert_eq!(response.block_number, Felt::ZERO);
-    assert_eq!(response.block_hash, "0x54d29b665f69e69f551fe33159ae4be707968c5b953ca9946701fd8633cb5bd");
-    assert_eq!(response.prev_block_number,Felt::MAX );
+    assert_eq!(
+        response.block_hash,
+        "0x54d29b665f69e69f551fe33159ae4be707968c5b953ca9946701fd8633cb5bd"
+    );
+    assert_eq!(response.prev_block_number, Felt::MAX);
 }
 
 #[test]
@@ -22,7 +25,10 @@ fn test_quote_bytes() {
     let bytes = response.quote_bytes().unwrap();
     // AMD SEV-SNP attestation report is 1184 bytes
     assert_eq!(bytes.len(), 1184);
-    assert_eq!(&bytes[..8], &[0x05, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+    assert_eq!(
+        &bytes[..8],
+        &[0x05, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+    );
 }
 
 #[test]

@@ -11,7 +11,7 @@ env:
 
 jobs:
   fmt:
-    name: Format
+    name: Rustfmt
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,26 +20,48 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
-      - run: cargo fmt --all --check
+      # Scope to first-party packages — `--all` reaches into the vendored
+      # submodule crates (path deps), which keep their own formatting.
+      - run: cargo fmt -p amd_tee_registry_client -p katana_tee_client -p tee_deploy --check
 
-  test:
-    name: Full Test Suite
+  rust-test:
+    name: Rust tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      - uses: dtolnay/rust-toolchain@stable
+      # Pinned to the known-good toolchain: alloy v1.0.41's `signer-aws` (pulled in
+      # by sp1-sdk's `network` feature) overflows the query depth limit on rustc
+      # >= 1.93, so `@stable` fails to build. 1.92.0 is what we build + prove with.
+      - uses: dtolnay/rust-toolchain@1.92.0
       - uses: Swatinem/rust-cache@v2
+      # protoc is needed transitively (prost-build) to build the SP1 network deps.
+      - name: Install protoc
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+      # Runs every workspace test that does not need live infra. Tests that hit
+      # the network (AMD KDS, Sepolia RPC, SP1 prover network) are marked
+      # `#[ignore]` and excluded here; run them locally with `cargo test -- --ignored`.
+      - name: Run workspace tests
+        run: cargo test --workspace --locked
+
+  cairo-test:
+    name: Cairo tests (snforge)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - uses: software-mansion/setup-scarb@v1
         with:
           scarb-version: "2.15.0"
       - uses: foundry-rs/setup-snfoundry@v4
-      - name: Install system deps
-        run: sudo apt-get update && sudo apt-get install -y jq
-      - name: Install starknet-devnet
-        run: pip install "starknet-devnet==0.7.1"
-      - name: Prepare env
-        run: cp .env.example .env
-      - name: Run full test suite
-        run: make test
+        with:
+          starknet-foundry-version: "0.54.1"
+      # Fork tests are `#[ignore] #[fork("MAINNET")]`; the placeholder keeps the
+      # `$MAINNET_RPC_URL` fork config in Scarb.toml parseable. Run the fork suite
+      # locally with `make test-fork` and a real RPC.
+      - name: Run snforge tests
+        run: snforge test --workspace
+        env:
+          MAINNET_RPC_URL: https://placeholder.invalid

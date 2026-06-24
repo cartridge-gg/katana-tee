@@ -19,8 +19,10 @@ use amd_tee_registry_client::{OnchainProof, StarknetCalldata, StarknetRegistryCl
 const CANONICAL_SEPOLIA_REGISTRY: &str =
     "0x01258ed7b2d3435097f9290d100d706d7f9f65db2725609cd7697669cac3bc3a";
 
-const PROOF_PATH: &str =
-    concat!(env!("CARGO_MANIFEST_DIR"), "/../../tests/fixtures/sepolia_block_0/proof.json");
+const PROOF_PATH: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../tests/fixtures/sepolia_block_0/proof.json"
+);
 
 #[tokio::test]
 #[ignore = "network: hits live Sepolia RPC"]
@@ -47,5 +49,8 @@ async fn verify_sp1_proof_on_canonical_sepolia_registry() {
         .expect("verify_sp1_proof should return Ok against the canonical Sepolia registry");
 
     assert!(!journal.is_empty(), "expected a non-empty VerifierJournal");
-    println!("verified ✓ — VerifierJournal returned {} felts", journal.len());
+    println!(
+        "verified ✓ — VerifierJournal returned {} felts",
+        journal.len()
+    );
 }
