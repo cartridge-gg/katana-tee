@@ -29,6 +29,9 @@ pub struct DecodedJournal {
     pub certs: Vec<[u8; 32]>,
     pub cert_serials: Vec<[u8; 20]>,
     pub trusted_certs_prefix_len: u8,
+    pub storage_commitment: [u8; 32],
+    pub fork_block_number: u64,
+    pub end_block_number: u64,
 }
 
 /// Parse the journal from a proof file and decode it into a VerifierJournal structure.
@@ -37,7 +40,8 @@ pub struct DecodedJournal {
 pub fn decode_journal_from_proof(proof: &OnchainProof) -> Result<DecodedJournal, Error> {
     let journal_bytes = &proof.raw_proof.journal;
 
-    if journal_bytes.len() < 256 {
+    // 32-byte ABI offset + a 10-word (320-byte) fixed head.
+    if journal_bytes.len() < 352 {
         return Err(Error::Calldata(format!(
             "Journal too short: {} bytes",
             journal_bytes.len()
@@ -55,6 +59,12 @@ pub fn decode_journal_from_proof(proof: &OnchainProof) -> Result<DecodedJournal,
     let certs_offset = u64::from_be_bytes(data[152..160].try_into().unwrap()) as usize; // Word 4
     let cert_serials_offset = u64::from_be_bytes(data[184..192].try_into().unwrap()) as usize; // Word 5
     let trusted_certs_prefix_len = data[223]; // Last byte of word 6
+
+    // Word 7: storageCommitment (full 32-byte felt). Words 8/9: fork/end block (u64).
+    let mut storage_commitment = [0u8; 32];
+    storage_commitment.copy_from_slice(safe_slice(data, 224, 256)?);
+    let fork_block_number = u64::from_be_bytes(safe_slice(data, 280, 288)?.try_into().unwrap());
+    let end_block_number = u64::from_be_bytes(safe_slice(data, 312, 320)?.try_into().unwrap());
 
     // Parse raw_report (dynamic bytes)
     let raw_report_len_slice = safe_slice(data, raw_report_offset + 24, raw_report_offset + 32)?;
@@ -107,6 +117,9 @@ pub fn decode_journal_from_proof(proof: &OnchainProof) -> Result<DecodedJournal,
         certs,
         cert_serials,
         trusted_certs_prefix_len,
+        storage_commitment,
+        fork_block_number,
+        end_block_number,
     })
 }
 
@@ -173,8 +186,25 @@ fn generate_block_fixture(block_num: usize, proof: &OnchainProof) -> Result<Stri
         journal.processor_model
     ));
     output.push_str(&format!(
-        "    let trusted_certs_prefix_len: u8 = {};\n\n",
+        "    let trusted_certs_prefix_len: u8 = {};\n",
         journal.trusted_certs_prefix_len
+    ));
+    let storage_commitment_hex: String = journal
+        .storage_commitment
+        .iter()
+        .map(|b| format!("{:02x}", b))
+        .collect();
+    output.push_str(&format!(
+        "    let storage_commitment: felt252 = 0x{};\n",
+        storage_commitment_hex
+    ));
+    output.push_str(&format!(
+        "    let fork_block_number: u64 = {};\n",
+        journal.fork_block_number
+    ));
+    output.push_str(&format!(
+        "    let end_block_number: u64 = {};\n\n",
+        journal.end_block_number
     ));
 
     // Raw report array
@@ -216,6 +246,9 @@ fn generate_block_fixture(block_num: usize, proof: &OnchainProof) -> Result<Stri
     output.push_str("        certs,\n");
     output.push_str("        cert_serials,\n");
     output.push_str("        trusted_certs_prefix_len,\n");
+    output.push_str("        storage_commitment,\n");
+    output.push_str("        fork_block_number,\n");
+    output.push_str("        end_block_number,\n");
     output.push_str("    }\n");
     output.push_str("}\n");
 
