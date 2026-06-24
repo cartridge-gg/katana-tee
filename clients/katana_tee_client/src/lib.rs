@@ -89,7 +89,6 @@ pub struct TeeQuoteResponse {
     /// This is the 1184-byte AMD SEV-SNP attestation report.
     pub quote: String,
 
-
     /// The state root at the previous attested block (hex-encoded Felt).
     #[serde(default)]
     pub prev_state_root: String,

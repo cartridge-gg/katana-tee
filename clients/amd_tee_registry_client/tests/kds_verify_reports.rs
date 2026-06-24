@@ -11,6 +11,7 @@ use common::{
 };
 use x509_verifier_rust_crypto::CertChain;
 
+#[ignore = "network: fetches the AMD KDS certificate chain over HTTP"]
 #[test]
 fn verify_reports_with_kds() -> anyhow::Result<()> {
     for (i, path) in fixture_paths_kds().iter().enumerate() {
